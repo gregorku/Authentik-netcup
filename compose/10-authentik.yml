@@ -17,14 +17,14 @@ x-authentik-env: &authentik-env
   AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:-}
 services:
   postgresql:
-    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    image: postgres:${POSTGRES_VERSION:?POSTGRES_VERSION is required}
     restart: unless-stopped
     environment: { POSTGRES_DB: ${POSTGRES_DB:?required}, POSTGRES_USER: ${POSTGRES_USER:?required}, POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required} }
     volumes: [${DATA_DIR:?DATA_DIR is required}/postgresql:/var/lib/postgresql/data]
     healthcheck: { test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'], interval: 10s, timeout: 5s, retries: 10 }
     logging: *default-logging
   redis:
-    image: redis:${REDIS_VERSION:-8-alpine}
+    image: redis:${REDIS_VERSION:?REDIS_VERSION is required}
     restart: unless-stopped
     command: --save 60 1 --loglevel warning
     volumes: [${DATA_DIR:?DATA_DIR is required}/redis:/data]

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-backup="${1:?Usage: restore.sh /path/to/backup}"; [[ "${CONFIRM_RESTORE:-}" == RESTORE_AUTHENTIK ]] || { echo 'Set CONFIRM_RESTORE=RESTORE_AUTHENTIK to continue.' >&2; exit 2; }
+backup="${1:?Usage: restore.sh /path/to/backup}"
+[[ "${CONFIRM_RESTORE:-}" == "$backup" ]] || { echo "Set CONFIRM_RESTORE exactly to the backup path to continue." >&2; exit 2; }
 stack=/docker-data/stacks/authentik-netcup
 source "$stack/.env"
 [[ -f "$backup/MANIFEST" && -f "$backup/SHA256SUMS" && -f "$backup/postgresql.dump" && -f "$backup/authentik-data.tgz" ]] || { echo 'Invalid backup layout' >&2; exit 1; }

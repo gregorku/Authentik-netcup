@@ -5,6 +5,6 @@ creates a PostgreSQL custom dump, selected persistent files, checksums and a
 manifest, then uses rsync to that destination. Its failure means there is no
 confirmed off-container backup.
 
-`restore.sh BACKUP_DIR` requires `CONFIRM_RESTORE=RESTORE_AUTHENTIK`, verifies
+`restore.sh BACKUP_DIR` requires `CONFIRM_RESTORE` to equal the exact backup path, verifies
 checksums, stops Authentik services, restores files and database, then starts
 the stack. Verify health and login manually afterwards.
