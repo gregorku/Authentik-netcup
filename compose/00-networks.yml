@@ -1,0 +1,4 @@
+networks:
+  authentik:
+    # No IPAM is configured: Docker selects a non-conflicting subnet.
+    name: ${COMPOSE_PROJECT_NAME:-authentik-netcup}_internal

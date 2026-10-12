@@ -20,6 +20,16 @@
 
 set -Eeuo pipefail
 
+# Sync is deliberately restricted to individual repository-managed items.
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; stack=/docker-data/stacks/authentik-netcup
+[[ -r "$stack/.env" ]] || { echo "Missing $stack/.env (copy .env.example and generate secrets)." >&2; exit 1; }
+"$repo/scripts/check-env.sh" "$stack/.env"
+for item in compose.yml compose configs .env.example; do rsync -a --delete "$repo/$item" "$stack/"; done
+docker compose --env-file "$stack/.env" -f "$stack/compose.yml" config -q
+docker compose --env-file "$stack/.env" -f "$stack/compose.yml" pull
+if [[ "${1:-}" == --apply ]]; then docker compose --env-file "$stack/.env" -f "$stack/compose.yml" up -d; else echo 'Validated and pulled. Re-run with --apply to start or change services.'; fi
+exit 0
+
 ###############################################################################
 # Directories
 ###############################################################################

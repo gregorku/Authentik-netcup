@@ -28,11 +28,9 @@ sync_item() {
 
     require_file_or_directory "${GIT_DIR}/${item}"
 
-    rsync \
-        -a \
-        --delete \
-        "${GIT_DIR}/${item}" \
-        "${STACK_DIR}/"
+    # Items are synchronized independently.  Runtime .env is never a source
+    # nor destination of rsync and --delete is confined to that item only.
+    rsync -a --delete "${GIT_DIR}/${item}" "${STACK_DIR}/"
 
     ok "Synced ${item}"
 }

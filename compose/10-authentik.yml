@@ -1,0 +1,51 @@
+x-logging: &default-logging
+  driver: local
+  options: { max-size: ${LOG_MAX_SIZE:-20m}, max-file: ${LOG_MAX_FILES:-5} }
+x-authentik-env: &authentik-env
+  AUTHENTIK_REDIS__HOST: redis
+  AUTHENTIK_POSTGRESQL__HOST: postgresql
+  AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  AUTHENTIK_POSTGRESQL__NAME: ${POSTGRES_DB:?POSTGRES_DB is required}
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}
+  AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST:-}
+  AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT:-587}
+  AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-}
+  AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD:-}
+  AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-true}
+  AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL__FROM:-}
+  AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:-}
+services:
+  postgresql:
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    restart: unless-stopped
+    environment: { POSTGRES_DB: ${POSTGRES_DB:?required}, POSTGRES_USER: ${POSTGRES_USER:?required}, POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required} }
+    volumes: [${DATA_DIR:?DATA_DIR is required}/postgresql:/var/lib/postgresql/data]
+    healthcheck: { test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'], interval: 10s, timeout: 5s, retries: 10 }
+    logging: *default-logging
+  redis:
+    image: redis:${REDIS_VERSION:-8-alpine}
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    volumes: [${DATA_DIR:?DATA_DIR is required}/redis:/data]
+    healthcheck: { test: [CMD, redis-cli, ping], interval: 10s, timeout: 3s, retries: 10 }
+    logging: *default-logging
+  server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION:?AUTHENTIK_VERSION is required}
+    restart: unless-stopped
+    command: server
+    environment: *authentik-env
+    volumes: [${DATA_DIR:?DATA_DIR is required}/media:/media, ${DATA_DIR:?DATA_DIR is required}/custom-templates:/templates, ${DATA_DIR:?DATA_DIR is required}/certs:/certs, ${DATA_DIR:?DATA_DIR is required}/blueprints:/blueprints]
+    ports: [${AUTHENTIK_HOST_IP:?AUTHENTIK_HOST_IP is required}:${AUTHENTIK_HTTP_PORT:-9000}:9000]
+    depends_on: { postgresql: { condition: service_healthy }, redis: { condition: service_healthy } }
+    healthcheck: { test: [CMD-SHELL, 'ak healthcheck || exit 1'], interval: 30s, timeout: 10s, retries: 5, start_period: 60s }
+    logging: *default-logging
+  worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION:?AUTHENTIK_VERSION is required}
+    restart: unless-stopped
+    command: worker
+    environment: *authentik-env
+    volumes: [${DATA_DIR:?DATA_DIR is required}/media:/media, ${DATA_DIR:?DATA_DIR is required}/custom-templates:/templates, ${DATA_DIR:?DATA_DIR is required}/certs:/certs, ${DATA_DIR:?DATA_DIR is required}/blueprints:/blueprints]
+    depends_on: { postgresql: { condition: service_healthy }, redis: { condition: service_healthy } }
+    healthcheck: { test: [CMD-SHELL, 'ak healthcheck || exit 1'], interval: 30s, timeout: 10s, retries: 5, start_period: 60s }
+    logging: *default-logging

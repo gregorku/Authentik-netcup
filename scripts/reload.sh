@@ -14,6 +14,12 @@
 
 set -Eeuo pipefail
 
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; stack=/docker-data/stacks/authentik-netcup
+[[ "${1:-}" == --apply ]] || { echo 'Usage: reload.sh --apply  (recreates server and worker; active sessions can be interrupted)' >&2; exit 2; }
+"$repo/scripts/deploy.sh" --apply
+docker compose --env-file "$stack/.env" -f "$stack/compose.yml" up -d --force-recreate server worker
+exit 0
+
 ###############################################################################
 # Directories
 ###############################################################################

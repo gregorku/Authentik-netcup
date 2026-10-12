@@ -1,23 +1,6 @@
-###############################################################################
-#
-# Monitoring-netcup Project
-#
-# Main Docker Compose entry point.
-#
-# Traefik is NOT part of this stack. Reverse proxying is handled by the
-# separate Infrastructure-netcup Incus container at 10.10.10.10.
-#
-###############################################################################
+name: ${COMPOSE_PROJECT_NAME:-authentik-netcup}
 
-name: monitoring-netcup
-
+# Docker Compose v2.20+ is required for `include`.
 include:
-
   - compose/00-networks.yml
-  - compose/20-prometheus.yml
-  - compose/30-snmp-exporter.yml
-  - compose/31-blackbox_exporter.yml
-  - compose/40-alertmanager.yml
-  - compose/50-grafana.yml
-  - compose/60-loki.yml
-  - compose/70-alloy.yml
+  - compose/10-authentik.yml

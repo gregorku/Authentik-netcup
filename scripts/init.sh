@@ -21,6 +21,16 @@
 
 set -Eeuo pipefail
 
+# Authentik-netcup implementation (the legacy template below is unreachable).
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; stack=/docker-data/stacks/authentik-netcup; data=/docker-data/authentik-netcup
+command -v docker >/dev/null || { echo 'Docker is required' >&2; exit 1; }
+docker ps --format '{{.Names}}' | grep -qx dockge || { echo 'Dockge is not running; it is not installed by this project.' >&2; exit 1; }
+mkdir -p "$stack" "$data"/{postgresql,redis,media,custom-templates,certs,blueprints}
+"$repo/scripts/deploy.sh" --sync-only
+docker network inspect authentik-netcup_internal >/dev/null 2>&1 && echo 'Existing Authentik network found (review for collisions).' || true
+echo 'Initialization complete. Set real secrets in runtime .env before deploy.'
+exit 0
+
 ###############################################################################
 # Directories
 ###############################################################################

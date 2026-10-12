@@ -14,6 +14,11 @@
 
 set -Eeuo pipefail
 
+stack=/docker-data/stacks/authentik-netcup
+docker compose --env-file "$stack/.env" -f "$stack/compose.yml" ps
+echo 'Verify DNS, TLS, firewall policy, and Traefik routing separately; this project cannot validate them locally.'
+exit 0
+
 ###############################################################################
 # Directories
 ###############################################################################

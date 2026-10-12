@@ -19,12 +19,12 @@ IFS=$'\n\t'
 # Project
 ###############################################################################
 
-readonly PROJECT_NAME="Monitoring-netcup"
+readonly PROJECT_NAME="Authentik-netcup"
 
 #
 # Docker Compose stack name
 #
-readonly STACK_NAME="monitoring-netcup"
+readonly STACK_NAME="authentik-netcup"
 
 ###############################################################################
 # Repository
@@ -38,7 +38,7 @@ readonly GIT_DIR="/incus-dir/git/${PROJECT_NAME}"
 
 readonly BASE_DIR="/docker-data"
 
-readonly DATA_DIR="${BASE_DIR}/monitoring-netcup"
+readonly DATA_DIR="${BASE_DIR}/authentik-netcup"
 
 ###############################################################################
 # Dockge
@@ -70,20 +70,13 @@ readonly ENV_EXAMPLE_FILE="${STACK_DIR}/.env.example"
 # Files copied during initialization
 ###############################################################################
 
-readonly DEPLOY_ITEMS=(
-    compose.yml
-    compose
-    configs
-    .env.example
-)
+readonly DEPLOY_ITEMS=(compose.yml compose configs .env.example)
 
 ###############################################################################
 # Docker networks
 ###############################################################################
 
-readonly NETWORK_INTERNAL="monitoring-netcup"
-readonly NETWORK_INTERNAL_SUBNET="10.40.0.0/16"
-readonly NETWORK_INTERNAL_GATEWAY="10.40.0.1"
+readonly NETWORK_INTERNAL="authentik-netcup_internal"
 
 ###############################################################################
 # Colors
@@ -99,8 +92,9 @@ readonly COLOR_RESET="\033[0m"
 # Grafana
 ###############################################################################
 
-readonly GRAFANA_SERVICE="grafana"
-readonly GRAFANA_DIR="${DATA_DIR}/grafana"
+readonly AUTHENTIK_SERVER_SERVICE="server"
+readonly AUTHENTIK_WORKER_SERVICE="worker"
+readonly POSTGRES_SERVICE="postgresql"
 
 ###############################################################################
 # Prometheus
