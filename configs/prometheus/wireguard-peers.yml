@@ -1,0 +1,205 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# File:
+#   configs/prometheus/wireguard-peers.yml
+#
+# Description:
+#   Ruční mapa WireGuard AllowedIPs -> název peeru.
+#
+#   Tento soubor je načítán Prometheem jako recording rules.
+#
+#   Při přidání nebo přejmenování peeru uprav pouze tento soubor.
+#
+###############################################################################
+
+groups:
+  - name: wireguard_peer_names
+
+    interval: 15s
+
+    rules:
+      #########################################################################
+      # Mikrotik bratrmach
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.10/32"
+          peer_name: "Mikrotik bratrmach"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.10/32"
+          peer_name: "Mikrotik bratrmach"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.10/32"
+          peer_name: "Mikrotik bratrmach"
+
+      #########################################################################
+      # Mikrotik doma
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.100/32"
+          peer_name: "Mikrotik doma"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.100/32"
+          peer_name: "Mikrotik doma"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.100/32"
+          peer_name: "Mikrotik doma"
+
+      #########################################################################
+      # Mikrotik jirkov
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.220/32"
+          peer_name: "Mikrotik jirkov"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.220/32"
+          peer_name: "Mikrotik jirkov"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.220/32"
+          peer_name: "Mikrotik jirkov"
+
+      #########################################################################
+      # Mikrotik klinovec
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.210/32"
+          peer_name: "Mikrotik klinovec"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.210/32"
+          peer_name: "Mikrotik klinovec"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.210/32"
+          peer_name: "Mikrotik klinovec"
+
+      #########################################################################
+      # Mikrotik prace
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.12/32"
+          peer_name: "Mikrotik prace"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.12/32"
+          peer_name: "Mikrotik prace"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.12/32"
+          peer_name: "Mikrotik prace"
+
+      #########################################################################
+      # Mikrotik test
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.5/32"
+          peer_name: "Mikrotik test"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.5/32"
+          peer_name: "Mikrotik test"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.5/32"
+          peer_name: "Mikrotik test"
+
+      #########################################################################
+      # Mikrotik udlice
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.200/32"
+          peer_name: "Mikrotik udlice"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.110.100.200/32"
+          peer_name: "Mikrotik udlice"
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.120.100.200/32"
+          peer_name: "Mikrotik udlice"
+
+      #########################################################################
+      # Mobil mujmobil
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.152/32"
+          peer_name: "Mobil mujmobil"
+
+      #########################################################################
+      # Notebook ntblenovo
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.150/32"
+          peer_name: "Notebook ntblenovo"
+
+      #########################################################################
+      # Notebook ntbpracovni
+      #########################################################################
+
+      - record: wireguard_peer_info
+        expr: vector(1)
+        labels:
+          allowed_ips: "10.100.100.151/32"
+          peer_name: "Notebook ntbpracovni"
