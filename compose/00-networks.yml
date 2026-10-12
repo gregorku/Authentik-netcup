@@ -1,4 +1,16 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# Docker network used only inside the Monitoring-netcup Incus container.
+# Traefik is external and runs in Infrastructure-netcup.
+#
+###############################################################################
+
 networks:
-  authentik:
-    # No IPAM is configured: Docker selects a non-conflicting subnet.
-    name: ${COMPOSE_PROJECT_NAME:-authentik-netcup}_internal
+
+  monitoring-netcup:
+
+    name: monitoring-netcup
+
+    external: true

@@ -1,0 +1,390 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# File:
+#   configs/prometheus/prometheus.yml
+#
+# Description:
+#   Prometheus scrape configuration.
+#
+###############################################################################
+
+global:
+  scrape_interval: 15s
+
+  evaluation_interval: 15s
+
+###############################################################################
+# Recording rules
+###############################################################################
+
+rule_files:
+  - /etc/prometheus/wireguard-peers.yml
+
+scrape_configs:
+  ###########################################################################
+  # Prometheus itself
+  ###########################################################################
+
+  - job_name: prometheus
+
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  ###########################################################################
+  # Traefik
+  #
+  # Requires the "metrics" entryPoint (:8082) and
+  # metrics.prometheus block in Infrastructure-netcup Traefik
+  # (already enabled).
+  ###########################################################################
+
+  - job_name: traefik
+
+    static_configs:
+      - targets:
+          - 10.10.10.10:8082
+
+  ###########################################################################
+  # CrowdSec
+  #
+  # CrowdSec exposes Prometheus metrics on :6060/metrics
+  # by default. If this target shows as "down", check
+  # that prometheus.enabled / listen_addr in CrowdSec's
+  # config.yaml is set to listen on 0.0.0.0, not 127.0.0.1.
+  ###########################################################################
+
+  - job_name: crowdsec
+
+    metrics_path: /metrics
+
+    static_configs:
+      - targets:
+          - 10.10.10.10:6060
+
+  ###########################################################################
+  # Node exporter (VPS / OS metriky serveru)
+  ###########################################################################
+
+  - job_name: node_serverVPSnetcup
+
+    static_configs:
+      - targets:
+          - 10.10.10.1:9100
+
+  ###########################################################################
+  # Node exporter (hardware / OS metriky serveru)
+  ###########################################################################
+
+  - job_name: node_server_domaPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.100:9100
+
+  - job_name: node_server_bratrmachPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.10:9100
+
+  - job_name: node_server_virtPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.12:29100
+
+  ###########################################################################
+  # ZFS exporter
+  ###########################################################################
+
+  - job_name: zfs_server_domaPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.100:9134
+
+  - job_name: zfs_server_virtPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.12:29134
+
+  ###########################################################################
+  # Smartctl exporter (S.M.A.R.T. stav disků)
+  ###########################################################################
+
+  - job_name: smartctl_server_domaPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.100:9633
+
+  - job_name: smartctl_server_bratrmachPc
+
+    static_configs:
+      - targets:
+          - 10.120.100.10:9633
+
+  ###########################################################################
+  # Node exporter (hardware / OS metriky serveru)
+  ###########################################################################
+
+  - job_name: node_testServer_pracePc
+
+    static_configs:
+      - targets:
+          - 10.120.100.5:9100
+
+  ###########################################################################
+  # ZFS exporter
+  ###########################################################################
+
+  - job_name: zfs_testServer_pracePc
+
+    static_configs:
+      - targets:
+          - 10.120.100.5:9134
+
+  ###########################################################################
+  # Smartctl exporter (S.M.A.R.T. stav disků)
+  ###########################################################################
+
+  - job_name: smartctl_testServer_pracePc
+
+    static_configs:
+      - targets:
+          - 10.120.100.5:9633
+
+  ###########################################################################
+  # WireGuard exporter – netcup VPS
+  #
+  # Exporter na netcupVPSServer sbírá wg1, wg2 a wg3.
+  #
+  # Endpoint je dostupný přes Incus bridge:
+  #
+  #   10.10.10.1:9586
+  #
+  ###########################################################################
+
+  - job_name: wireguard
+
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+    static_configs:
+      - targets:
+          - 10.10.10.1:9586
+
+        labels:
+          name: "netcupVPSServer"
+          service: "WireGuard"
+
+  ###########################################################################
+  # MikroTik / SNMP zařízení (přes snmp_exporter)
+  ###########################################################################
+
+  - job_name: mikrotik
+
+    # SNMP dotazy trvají déle, prodloužíme časový limit na 15 sekund
+    scrape_timeout: 15s
+
+    static_configs:
+      - targets:
+          - 10.120.100.5
+
+        labels:
+          name: "Mikrotik_test_prace"
+
+      - targets:
+          - 10.120.100.10
+
+        labels:
+          name: "Mikrotik_bratrmach"
+
+      - targets:
+          - 10.120.100.12
+
+        labels:
+          name: "Mikrotik_prace"
+
+      - targets:
+          - 10.120.100.100
+
+        labels:
+          name: "Mikrotik_doma"
+
+      - targets:
+          - 10.120.100.200
+
+        labels:
+          name: "Mikrotik_Udlice"
+
+      - targets:
+          - 10.120.100.210
+
+        labels:
+          name: "Mikrotik_Klinovec"
+
+      - targets:
+          - 10.120.100.220
+
+        labels:
+          name: "Mikrotik_jirkov_ubytovna"
+
+    metrics_path: /snmp
+
+    params:
+      module: [mikrotik]
+
+    relabel_configs:
+      # IP MikroTiku předáme SNMP exporteru
+
+      - source_labels: [__address__]
+        target_label: __param_target
+
+      # IP uložíme do samostatného labelu "target"
+
+      - source_labels: [__param_target]
+        target_label: target
+
+      # instance bude název MikroTiku
+
+      - source_labels: [name]
+        target_label: instance
+
+      # Prometheus skutečně komunikuje se snmp-exporterem
+
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+
+  ###########################################################################
+  # MikroTik / ICMP ping
+  #
+  # Měří skutečnou ICMP odezvu z monitoringu na všechny MikroTik routery.
+  # Blackbox Exporter musí být dostupný na blackbox-exporter:9115.
+  ###########################################################################
+
+  - job_name: mikrotik_ping
+
+    metrics_path: /probe
+
+    params:
+      module: [icmp]
+
+    static_configs:
+      - targets:
+          - 10.120.100.5
+
+        labels:
+          name: "Mikrotik_test_prace"
+
+      - targets:
+          - 10.120.100.10
+
+        labels:
+          name: "Mikrotik_bratrmach"
+
+      - targets:
+          - 10.120.100.12
+
+        labels:
+          name: "Mikrotik_prace"
+
+      - targets:
+          - 10.120.100.100
+
+        labels:
+          name: "Mikrotik_doma"
+
+      - targets:
+          - 10.120.100.200
+
+        labels:
+          name: "Mikrotik_Udlice"
+
+      - targets:
+          - 10.120.100.210
+
+        labels:
+          name: "Mikrotik_Klinovec"
+
+      - targets:
+          - 10.120.100.220
+
+        labels:
+          name: "Mikrotik_jirkov_ubytovna"
+
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+
+      - source_labels: [__param_target]
+        target_label: target
+
+      - source_labels: [name]
+        target_label: instance
+
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  ###########################################################################
+  # Cisco Switch / SNMP zařízení (přes přesměrování port 1161)
+  ###########################################################################
+
+  - job_name: "cisco_switch"
+
+    scrape_interval: 30s
+    scrape_timeout: 15s
+
+    static_configs:
+      - targets:
+          - 10.120.100.220:1161
+
+        labels:
+          name: "Cisco_Switch_3560"
+
+    metrics_path: /snmp
+
+    params:
+      module: [cisco]
+
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+
+      - source_labels: [name]
+        target_label: instance
+
+      - source_labels: [__param_target]
+        target_label: target
+
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+
+  ###########################################################################
+  # Přidávání dalších serverů/služeb ke sledování
+  #
+  # Zkopíruj tenhle vzor a uprav job_name + cíl:
+  #
+  #   - job_name: nazev-sluzby
+  #
+  #     static_configs:
+  #
+  #       - targets:
+  #           - jmeno-kontejneru:port
+  #           - 192.168.1.50:9100
+  #
+  # metrics_path je potřeba jen pokud služba neexpozuje
+  # metriky na výchozí cestě "/metrics".
+  #
+  # Po úpravě: ./scripts/deploy.sh
+  #
+  # nebo:
+  #
+  # docker exec prometheus kill -HUP 1
+  #
+  # pro reload bez restartu.
+  ###########################################################################

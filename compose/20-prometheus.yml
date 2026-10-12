@@ -1,0 +1,104 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# File:
+#   compose/20-prometheus.yml
+#
+# Description:
+#   Prometheus metrics collector.
+#
+#   Internal only. Routed by the external Infrastructure-netcup Traefik through
+#   entryPoint :8445. Access is restricted to WireGuard clients and
+#   protected by BasicAuth in Infrastructure-netcup.
+#
+###############################################################################
+
+services:
+  prometheus:
+    ###########################################################################
+    # Image
+    ###########################################################################
+
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+
+    container_name: prometheus
+
+    hostname: prometheus
+
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+    ###########################################################################
+    # Configuration
+    ###########################################################################
+
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+
+      - --storage.tsdb.path=/prometheus
+
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION}
+
+      - --web.enable-admin-api
+
+      #
+      # Served on its own dedicated Traefik entryPoint
+      # (:8445, see Infrastructure-netcup Traefik)
+      # -- no subpath, so no route-prefix needed.
+      #
+
+      - --web.external-url=${PROMETHEUS_PUBLIC_URL}
+    ###########################################################################
+    # Networks
+    ###########################################################################
+
+    networks:
+      monitoring-netcup:
+        ipv4_address: ${IP_PROMETHEUS}
+
+    ports:
+      - "${MONITORING_HOST_IP}:9090:9090"
+
+    volumes:
+      #
+      # Scrape configuration
+      #
+
+      - ../configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../configs/prometheus/wireguard-peers.yml:/etc/prometheus/wireguard-peers.yml:ro
+
+      #
+      # Persistent time-series data
+      #
+
+      - ${DATA_DIR}/prometheus/data:/prometheus
+
+    ###########################################################################
+    # Healthcheck
+    ###########################################################################
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://localhost:9090/-/healthy
+
+      interval: 30s
+
+      timeout: 5s
+
+      retries: 5
+
+    ###########################################################################
+    # Logging
+    ###########################################################################
+
+    logging:
+      driver: json-file
+
+      options:
+        max-size: ${LOG_MAX_SIZE}
+
+        max-file: "${LOG_MAX_FILES}"

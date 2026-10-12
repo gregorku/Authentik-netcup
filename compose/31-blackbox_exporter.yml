@@ -1,0 +1,61 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# File:
+#   compose/31-blackbox_exporter.yml
+#
+# Description:
+#   blackbox_exporter -- ICMP/TCP/HTTP probing
+#
+#   Used by Prometheus for monitoring network reachability
+#   and measuring ICMP latency of MikroTik routers.
+#
+#   Internal only -- not routed through Traefik. Prometheus
+#   reaches it directly by container name.
+#
+###############################################################################
+
+services:
+
+  blackbox-exporter:
+
+    image: prom/blackbox-exporter:${BLACKBOX_EXPORTER_VERSION}
+
+    container_name: blackbox-exporter
+
+    hostname: blackbox-exporter
+
+    restart: unless-stopped
+
+    security_opt:
+
+      - no-new-privileges:true
+
+    cap_add:
+
+      - NET_RAW
+
+    volumes:
+
+      - ../configs/blackbox-exporter/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+
+    command:
+
+      - --config.file=/etc/blackbox_exporter/config.yml
+
+    networks:
+
+      monitoring-netcup:
+        ipv4_address: ${IP_BLACKBOX_EXPORTER}
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        max-size: ${LOG_MAX_SIZE}
+
+        max-file: "${LOG_MAX_FILES}"
+

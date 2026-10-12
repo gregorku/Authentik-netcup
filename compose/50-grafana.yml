@@ -1,0 +1,72 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# Grafana is the only public application. Infrastructure-netcup Traefik
+# routes grafana.serveftp.org to 10.10.10.11:3000.
+#
+###############################################################################
+
+services:
+
+  grafana:
+
+    image: grafana/grafana:${GRAFANA_VERSION}
+
+    container_name: grafana
+
+    hostname: grafana
+
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+    environment:
+
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN}/
+      GF_SERVER_PROTOCOL: http
+
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+      TZ: ${TZ}
+
+    networks:
+
+      monitoring-netcup:
+        ipv4_address: ${IP_GRAFANA}
+
+    ports:
+
+      - "${MONITORING_HOST_IP}:${GRAFANA_PORT}:3000"
+
+    volumes:
+
+      - ../configs/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ../configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${DATA_DIR}/grafana/data:/var/lib/grafana
+
+    healthcheck:
+
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://localhost:3000/api/health
+
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+    logging:
+
+      driver: json-file
+
+      options:
+        max-size: ${LOG_MAX_SIZE}
+        max-file: "${LOG_MAX_FILES}"

@@ -36,8 +36,10 @@ ensure_directory() {
 #   ensure_directory_owner /path/to/directory 65534:65534
 #
 # Notes:
-#   Use only when an image documents a non-root runtime UID/GID.
-#   Do not infer ownership for Authentik persistent directories.
+#   Needed for containers that run as a non-root user
+#   (e.g. Prometheus runs as "nobody" / 65534:65534) and
+#   would otherwise get "permission denied" writing to a
+#   bind-mounted directory owned by root.
 #
 ###############################################################################
 

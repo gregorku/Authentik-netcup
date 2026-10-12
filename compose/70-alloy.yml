@@ -1,0 +1,32 @@
+###############################################################################
+# Grafana Alloy - Docker log collector
+###############################################################################
+services:
+
+  alloy:
+    image: grafana/alloy:${ALLOY_VERSION}
+    container_name: alloy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+
+      - "${MONITORING_HOST_IP}:12345:12345"
+
+    volumes:
+      - ../configs/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${DATA_DIR}/alloy/data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_started
+    networks:
+
+      monitoring-netcup:
+        ipv4_address: ${IP_ALLOY}
+

@@ -1,0 +1,63 @@
+###############################################################################
+#
+# Monitoring-netcup Project
+#
+# File:
+#   compose/30-snmp-exporter.yml
+#
+# Description:
+#   snmp_exporter -- lets Prometheus scrape SNMP devices
+#   (MikroTik routers/switches, etc.) via the standard
+#   multi-target exporter pattern.
+#
+#   Uses a custom snmp.yml with the "mikrotik" module
+#   (see configs/snmp-exporter/snmp.yml) instead of the
+#   image's built-in default -- covers MikroTik-specific
+#   hardware/wireless metrics (CPU temp, voltage, fan
+#   speed, PoE, wireless client tables), not just generic
+#   interface counters.
+#
+#   Internal only -- not routed through Traefik. Prometheus
+#   reaches it directly by container name.
+#
+###############################################################################
+
+services:
+
+  snmp-exporter:
+
+    image: prom/snmp-exporter:${SNMP_EXPORTER_VERSION}
+
+    container_name: snmp-exporter
+
+    hostname: snmp-exporter
+
+    restart: unless-stopped
+
+    security_opt:
+
+      - no-new-privileges:true
+
+    ports:
+
+      - "${MONITORING_HOST_IP}:9116:9116"
+
+    volumes:
+
+      - ../configs/snmp-exporter/snmp.yml:/etc/snmp_exporter/snmp.yml:ro
+
+    networks:
+
+      monitoring-netcup:
+        ipv4_address: ${IP_SNMP_EXPORTER}
+
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        max-size: ${LOG_MAX_SIZE}
+
+        max-file: "${LOG_MAX_FILES}"

@@ -28,7 +28,7 @@ require_compose() {
 # Usage:
 #   compose_cmd ps
 #   compose_cmd logs
-#   compose_cmd logs server
+#   compose_cmd logs prometheus
 #
 ###############################################################################
 
@@ -61,7 +61,7 @@ validate_compose() {
 #
 # Usage:
 #   compose_pull
-#   compose_pull server
+#   compose_pull "${PROMETHEUS_SERVICE}"
 #
 ###############################################################################
 
@@ -77,7 +77,7 @@ compose_pull() {
 #
 # Usage:
 #   compose_up
-#   compose_up server
+#   compose_up "${PROMETHEUS_SERVICE}"
 #
 ###############################################################################
 
@@ -93,7 +93,7 @@ compose_up() {
 #
 # Usage:
 #   compose_down
-#   compose_down server
+#   compose_down "${PROMETHEUS_SERVICE}"
 #
 ###############################################################################
 
@@ -112,7 +112,7 @@ compose_down() {
 # Restart service
 #
 # Usage:
-#   compose_restart server
+#   compose_restart "${PROMETHEUS_SERVICE}"
 #
 ###############################################################################
 
@@ -140,7 +140,7 @@ compose_ps() {
 #
 # Usage:
 #   compose_logs
-#   compose_logs server
+#   compose_logs "${PROMETHEUS_SERVICE}"
 #
 ###############################################################################
 
