@@ -23,18 +23,29 @@
 #   - authentik-worker is stopped
 #   - authentik-postgresql is running and healthy
 #
-# Order of writes:
-#   1. Replace Authentik data, templates and certs.
-#   2. pg_restore into the running PostgreSQL.
+# Before any live path is removed the script checks the archive,
+# the dump, the three persistent directories and AUTHENTIK_SECRET_KEY.
+# It then copies the current files, .env and a pg_dump into a rollback
+# directory and checks that copy. Only after that does it replace
+# files, the secret key and the database.
 #
-# The runtime .env is not replaced automatically. stack.env inside the
-# archive is the secret key and passwords from the backup. The manifest
-# tag must match AUTHENTIK_TAG unless --allow-version-mismatch is set.
-# Restoring a database that was written by a different Authentik
-# version can fail migrations or leave the schema incompatible.
+# stack.env is not copied over the runtime .env. Only
+# AUTHENTIK_SECRET_KEY is replaced. SMTP, trusted proxy and the backup
+# destination stay as they are.
+#
+# A failed phase does not print success. When rollback works, the
+# previous state is put back and the script exits non-zero. When
+# rollback fails, the snapshot path is kept and Authentik must stay
+# stopped.
+#
+# The manifest tag must match AUTHENTIK_TAG unless
+# --allow-version-mismatch is set. Restoring a database that was
+# written by a different Authentik version can fail migrations or
+# leave the schema incompatible.
 #
 # Side effects with --replace-data:
-#   - Deletes and replaces the three Authentik data directories
+#   - Replaces the three Authentik data directories
+#   - Replaces AUTHENTIK_SECRET_KEY in the runtime .env
 #   - Drops and recreates objects in the Authentik database
 #
 # This script does not start Compose and does not change Traefik.
@@ -68,6 +79,7 @@ source "${SCRIPT_DIR}/lib/env/load.sh"
 source "${SCRIPT_DIR}/lib/backup/archive.sh"
 source "${SCRIPT_DIR}/lib/backup/postgres.sh"
 source "${SCRIPT_DIR}/lib/backup/restore-plan.sh"
+source "${SCRIPT_DIR}/lib/backup/apply.sh"
 
 ###############################################################################
 # Help
@@ -94,7 +106,8 @@ Options:
         Required. Any other value is refused.
 
     --replace-data
-        Overwrite Authentik files and the PostgreSQL database.
+        Overwrite Authentik files, AUTHENTIK_SECRET_KEY and the
+        PostgreSQL database. Other .env lines are left as they are.
         Without this option the archive is only verified.
 
     --allow-version-mismatch
@@ -107,6 +120,11 @@ Required state before --replace-data:
     Leave ${POSTGRESQL_CONTAINER} running and healthy.
     Keep AUTHENTIK_TAG equal to the manifest unless the mismatch
     flag is set.
+
+    An incomplete archive is refused before any live directory is
+    removed. On failure the previous files, key and database are
+    restored, or the script says the restore was not completed and
+    where the snapshot was left.
 
 EOF
 }
@@ -164,21 +182,43 @@ done
 restore_confirmation_matches "${confirm}" \
     || fail "Refusing restore. --confirm must be exactly '${STACK_NAME}'."
 
+###############################################################################
+# Remove the extract. Keep a rollback snapshot when the restore failed
+# after live data was changed.
+###############################################################################
+
+restore_on_exit()
+{
+    local status=$?
+
+    if [[ -n "${stage}" && -d "${stage}" ]]; then
+        rm -rf "${stage}"
+    fi
+
+    if [[ "${RESTORE_KEEP_ROLLBACK}" != "yes" && -n "${rollback}" ]]; then
+        rm -rf "${rollback}"
+    fi
+
+    exit "${status}"
+}
+
 print_header "Authentik-netcup restore"
 
 check_environment
 
-stage="$(mktemp -d)"
-trap 'rm -rf "${stage}"' EXIT
-
-backup_verify_archive "${archive}" "${stage}"
-
-manifest="${stage}/manifest.txt"
-manifest_tag="$(backup_manifest_field "${manifest}" authentik_tag)"
-
 [[ -f "${ENV_FILE}" ]] \
     || fail ".env not found. The restore target is not initialized."
 
+stage="$(mktemp -d)"
+rollback=""
+RESTORE_KEEP_ROLLBACK=no
+trap 'restore_on_exit' EXIT
+
+backup_verify_archive "${archive}" "${stage}"
+restore_validate_stage "${stage}"
+
+manifest="${stage}/manifest.txt"
+manifest_tag="$(backup_manifest_field "${manifest}" authentik_tag)"
 runtime_tag="$(env_get AUTHENTIK_TAG)"
 
 if ! restore_versions_match "${manifest_tag}" "${runtime_tag}" "${allow_mismatch}"; then
@@ -187,7 +227,7 @@ fi
 
 if [[ "${replace_data}" != "yes" ]]; then
     warn "Archive verified. Persistent data was not changed."
-    warn "Re-run with --replace-data to overwrite Authentik files and PostgreSQL."
+    warn "Re-run with --replace-data to overwrite Authentik files, the secret key and PostgreSQL."
     exit 2
 fi
 
@@ -203,31 +243,35 @@ fi
 
 backup_require_postgresql
 
-info "Replacing Authentik files, then restoring PostgreSQL."
+ensure_directory "${BACKUP_LOCAL_DIR}"
+chmod 700 "${BACKUP_LOCAL_DIR}"
 
-rm -rf \
-    "${AUTHENTIK_DATA_DIR}" \
-    "${AUTHENTIK_TEMPLATES_DIR}" \
-    "${AUTHENTIK_CERTS_DIR}"
+rollback="$(mktemp -d "${BACKUP_LOCAL_DIR}/rollback.XXXXXX")"
+chmod 700 "${rollback}"
 
-mkdir -p \
-    "${AUTHENTIK_DATA_DIR}" \
-    "${AUTHENTIK_TEMPLATES_DIR}" \
-    "${AUTHENTIK_CERTS_DIR}"
+info "Rollback snapshot will be prepared before any live data is replaced."
 
-cp -a "${stage}/authentik/data/." "${AUTHENTIK_DATA_DIR}/"
-cp -a "${stage}/authentik/templates/." "${AUTHENTIK_TEMPLATES_DIR}/"
-cp -a "${stage}/authentik/certs/." "${AUTHENTIK_CERTS_DIR}/"
+if ! restore_perform "${stage}" "${AUTHENTIK_DIR}" "${ENV_FILE}" "${rollback}"; then
 
-chown -R "${AUTHENTIK_UID_GID}" \
-    "${AUTHENTIK_DATA_DIR}" \
-    "${AUTHENTIK_TEMPLATES_DIR}" \
-    "${AUTHENTIK_CERTS_DIR}"
+    if restore_should_keep_rollback; then
+        RESTORE_KEEP_ROLLBACK=yes
+    fi
 
-backup_restore_postgresql "${stage}/postgresql/authentik.dump"
+    if [[ "${RESTORE_ERROR}" == "rolled-back" ]]; then
+        fail "Restore was not completed. Files, the database and AUTHENTIK_SECRET_KEY were returned to the previous state. Snapshot kept at ${rollback}. Do not start Authentik on this result."
+    fi
 
-info "stack.env in the archive was not copied over ${ENV_FILE}."
-info "Compare it with the runtime .env before starting Authentik."
+    if [[ "${RESTORE_ERROR}" == "rollback-failed" ]]; then
+        fail "Restore was not completed and automatic rollback failed. Do not start Authentik. The snapshot of the previous files, .env and database dump is in ${rollback}. Put those files and AUTHENTIK_SECRET_KEY back before loading that dump."
+    fi
+
+    fail "Restore was not completed. Live data was not changed."
+fi
+
+rm -rf "${rollback}"
+rollback=""
+
+info "AUTHENTIK_SECRET_KEY was restored. Other runtime .env settings were left in place."
 info "Start the stack only with Authentik tag ${manifest_tag}."
 
 print_footer "Restore completed."

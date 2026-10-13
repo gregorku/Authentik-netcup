@@ -66,6 +66,8 @@ source "${SCRIPT_DIR}/lib/env/load.sh"
 source "${SCRIPT_DIR}/lib/deploy/stack.sh"
 source "${SCRIPT_DIR}/lib/backup/archive.sh"
 source "${SCRIPT_DIR}/lib/backup/restore-plan.sh"
+source "${SCRIPT_DIR}/lib/backup/runtime.sh"
+source "${SCRIPT_DIR}/lib/backup/apply.sh"
 
 ###############################################################################
 # Help
@@ -117,7 +119,12 @@ run_static_tests()
     test_compose_bindings
     test_sync_guards
     test_backup_archive
+    test_backup_external_copy
+    test_backup_quiesce
     test_restore_confirmation
+    test_restore_rejects_incomplete
+    test_restore_rolls_back
+    test_restore_installs_secret_key
 
     print_footer "Static tests completed."
 }

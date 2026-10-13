@@ -61,7 +61,7 @@ backup_dump_postgresql()
 
     mkdir -p "$(dirname "${output}")"
 
-    docker exec -u postgres "${POSTGRESQL_CONTAINER}" \
+    if ! docker exec -u postgres "${POSTGRESQL_CONTAINER}" \
         pg_dump \
             -U "${db_user}" \
             -d "${db_name}" \
@@ -69,6 +69,9 @@ backup_dump_postgresql()
             --no-owner \
             --no-acl \
         > "${output}"
+    then
+        fail "PostgreSQL dump failed."
+    fi
 
     [[ -s "${output}" ]] \
         || fail "PostgreSQL dump is empty: ${output}"
@@ -100,7 +103,7 @@ backup_restore_postgresql()
     db_user="$(env_get PG_USER)"
     db_name="$(env_get PG_DB)"
 
-    docker exec -i -u postgres "${POSTGRESQL_CONTAINER}" \
+    if ! docker exec -i -u postgres "${POSTGRESQL_CONTAINER}" \
         pg_restore \
             -U "${db_user}" \
             -d "${db_name}" \
@@ -110,6 +113,9 @@ backup_restore_postgresql()
             --no-acl \
             --single-transaction \
         < "${input}"
+    then
+        fail "PostgreSQL restore failed."
+    fi
 
     ok "PostgreSQL dump restored."
 }

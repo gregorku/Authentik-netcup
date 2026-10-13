@@ -70,7 +70,7 @@ Po recreate následuje `post-deploy.sh` a `test.sh`.
 
 `test.sh` bez argumentu dělá totéž v nasazeném kontejneru, včetně Dockge a existence Docker sítě.
 
-`test.sh --static` je varianta pro checkout: struktura, politika `.env.example`, odmítnutí placeholderů, statické porty, dočasný test `rsync --delete` a kontrolní součty zálohy. `docker compose config` vypíše, že neběžel, pokud Docker CLI chybí.
+`test.sh --static` je varianta pro checkout: struktura, politika `.env.example`, odmítnutí placeholderů, statické porty, dočasný test `rsync --delete`, kontrolní součty zálohy a odmítnutí neúplné obnovy. `docker compose config` vypíše, že neběžel, pokud Docker CLI chybí.
 
 ## Záloha
 

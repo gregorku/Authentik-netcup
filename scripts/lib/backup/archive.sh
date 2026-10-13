@@ -212,20 +212,92 @@ backup_verify_archive()
     local archive="$1"
     local destination="$2"
 
-    [[ -f "${archive}" ]] \
-        || fail "Archive not found: ${archive}"
-
-    [[ -f "${archive}.sha256" ]] \
-        || fail "Archive checksum not found: ${archive}.sha256"
-
-    (
-        cd "$(dirname "${archive}")" || exit 1
-        sha256sum --check "$(basename "${archive}").sha256" >/dev/null
-    ) || fail "Archive checksum does not match ${archive}."
+    backup_require_sidecar "${archive}" "archive"
 
     mkdir -p "${destination}"
 
     tar -C "${destination}" -xzf "${archive}"
 
     backup_verify_tree "${destination}"
+}
+
+###############################################################################
+# Check a sidecar checksum in the directory that holds the archive
+#
+# Arguments:
+#   $1 - Archive path
+#
+###############################################################################
+
+backup_verify_sidecar()
+{
+    local archive="$1"
+
+    [[ -f "${archive}" ]] || return 1
+
+    [[ -f "${archive}.sha256" ]] || return 1
+
+    (
+        cd "$(dirname "${archive}")" || exit 1
+        sha256sum --check "$(basename "${archive}").sha256" >/dev/null
+    )
+}
+
+###############################################################################
+# Require a sidecar checksum
+#
+# Arguments:
+#   $1 - Archive path
+#   $2 - "archive" or "copy"
+#
+###############################################################################
+
+backup_require_sidecar()
+{
+    local archive="$1"
+    local kind="$2"
+
+    if backup_verify_sidecar "${archive}"; then
+        return 0
+    fi
+
+    if [[ "${kind}" == "copy" ]]; then
+        fail "Checksum of the copy in $(dirname "${archive}") does not match. The copy is not a verified backup."
+    fi
+
+    fail "Archive checksum does not match ${archive}."
+}
+
+###############################################################################
+# Copy an archive and verify the checksum on the destination
+#
+# Arguments:
+#   $1 - Archive path
+#   $2 - Destination directory
+#
+# A failed check does not describe the copy as a verified backup.
+#
+###############################################################################
+
+backup_copy_and_verify()
+{
+    local archive="$1"
+    local dest_dir="$2"
+    local base
+
+    base="$(basename "${archive}")"
+
+    [[ -d "${dest_dir}" ]] \
+        || fail "Backup destination is not a directory: ${dest_dir}"
+
+    [[ -f "${archive}.sha256" ]] \
+        || fail "Archive checksum not found: ${archive}.sha256"
+
+    cp "${archive}" "${archive}.sha256" "${dest_dir}/"
+
+    chmod 600 "${dest_dir}/${base}" "${dest_dir}/${base}.sha256"
+
+    backup_require_sidecar "${dest_dir}/${base}" "copy"
+
+    ok "Verified archive copy: ${dest_dir}/${base}"
 }
