@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/checks/load.sh
 #
 # Description:
-#   Load all common Monitoring-netcup check libraries.
+#   Load all common Authentik-netcup check libraries.
 #
 ###############################################################################
 

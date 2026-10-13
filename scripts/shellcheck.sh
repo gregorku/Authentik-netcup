@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/shellcheck.sh

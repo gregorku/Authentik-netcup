@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/env/load.sh
@@ -21,6 +21,8 @@ source "${SCRIPT_DIR}/lib/env/parser.sh"
 source "${SCRIPT_DIR}/lib/env/reader.sh"
 
 source "${SCRIPT_DIR}/lib/env/policy.sh"
+
+source "${SCRIPT_DIR}/lib/env/generate.sh"
 
 source "${SCRIPT_DIR}/lib/env/writer.sh"
 

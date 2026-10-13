@@ -1,0 +1,5 @@
+.env
+.env.bak-*
+.env.tmp
+*.tar.gz
+*.sha256

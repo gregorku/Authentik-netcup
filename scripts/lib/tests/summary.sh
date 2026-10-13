@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/tests/summary.sh
 #
 # Description:
-#   Print Monitoring-netcup test summary.
+#   Print Authentik-netcup test summary.
 #
 ###############################################################################
 
@@ -20,7 +20,7 @@ test_summary()
 {
     print_section "Finished"
 
-    ok "Monitoring-netcup tests completed."
+    ok "Authentik-netcup tests completed."
 
     echo
 

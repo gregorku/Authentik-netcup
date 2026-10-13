@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/checks/docker.sh
 #
 # Description:
-#   Docker validation and helper functions used by Monitoring-netcup scripts.
+#   Docker validation and helper functions used by Authentik-netcup scripts.
 #
 ###############################################################################
 

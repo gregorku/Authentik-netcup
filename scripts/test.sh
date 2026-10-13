@@ -2,13 +2,25 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/test.sh
 #
 # Description:
-#   Run Monitoring-netcup framework tests.
+#   Run Authentik-netcup tests.
+#
+# Usage:
+#   ./scripts/test.sh
+#   ./scripts/test.sh --static
+#   ./scripts/test.sh --help
+#
+#   Without arguments this expects the Incus container: root, Docker,
+#   Dockge and the running stack. A check that cannot be executed fails.
+#
+#   --static reads the Git checkout and temporary directories. It does
+#   not need root and it does not write to /docker-data. docker compose
+#   config is reported as not executed when the Docker CLI is absent.
 #
 ###############################################################################
 
@@ -48,48 +60,122 @@ source "${SCRIPT_DIR}/lib/checks/load.sh"
 source "${SCRIPT_DIR}/lib/env/load.sh"
 
 ###############################################################################
-# Test modules
+# Deployment and backup libraries used by static tests
 ###############################################################################
 
-source "${SCRIPT_DIR}/lib/tests/project.sh"
-source "${SCRIPT_DIR}/lib/tests/stack.sh"
-source "${SCRIPT_DIR}/lib/tests/environment.sh"
-source "${SCRIPT_DIR}/lib/tests/compose.sh"
-source "${SCRIPT_DIR}/lib/tests/docker.sh"
-source "${SCRIPT_DIR}/lib/tests/dockge.sh"
-source "${SCRIPT_DIR}/lib/tests/networks.sh"
-source "${SCRIPT_DIR}/lib/tests/backend-security.sh"
+source "${SCRIPT_DIR}/lib/deploy/stack.sh"
+source "${SCRIPT_DIR}/lib/backup/archive.sh"
+source "${SCRIPT_DIR}/lib/backup/restore-plan.sh"
 
 ###############################################################################
-# Services
+# Help
 ###############################################################################
 
-source "${SCRIPT_DIR}/lib/tests/summary.sh"
+show_help()
+{
+cat <<EOF
+Authentik-netcup Project
+
+Usage:
+
+    ./scripts/test.sh
+    ./scripts/test.sh --static
+    ./scripts/test.sh --help
+
+Options:
+
+    --static
+        Validate the checkout, .env.example, Compose port bindings,
+        sync path guards and backup checksums in a temporary directory.
+
+    -h, --help
+        Show this help.
+
+Description:
+
+    The default mode checks the deployed stack in this container:
+    project files, .env, Compose, Docker, Dockge, the network and the
+    published HTTP port.
+
+EOF
+}
+
+###############################################################################
+# Static mode
+###############################################################################
+
+run_static_tests()
+{
+    source "${SCRIPT_DIR}/lib/tests/static.sh"
+    source "${SCRIPT_DIR}/lib/tests/backup.sh"
+
+    print_header "Authentik-netcup static test"
+
+    test_repository_layout
+    test_env_example
+    test_runtime_placeholder_rejection
+    test_compose_bindings
+    test_sync_guards
+    test_backup_archive
+    test_restore_confirmation
+
+    print_footer "Static tests completed."
+}
+
+###############################################################################
+# Container mode
+###############################################################################
+
+run_runtime_tests()
+{
+    source "${SCRIPT_DIR}/lib/tests/project.sh"
+    source "${SCRIPT_DIR}/lib/tests/stack.sh"
+    source "${SCRIPT_DIR}/lib/tests/environment.sh"
+    source "${SCRIPT_DIR}/lib/tests/compose.sh"
+    source "${SCRIPT_DIR}/lib/tests/docker.sh"
+    source "${SCRIPT_DIR}/lib/tests/dockge.sh"
+    source "${SCRIPT_DIR}/lib/tests/networks.sh"
+    source "${SCRIPT_DIR}/lib/tests/backend-security.sh"
+    source "${SCRIPT_DIR}/lib/tests/summary.sh"
+
+    print_header "Authentik-netcup test"
+
+    check_environment
+    check_docker_environment
+
+    test_project
+    test_stack
+    test_environment
+    test_compose
+    test_docker
+    test_dockge
+    test_networks
+    test_backend_security
+
+    test_summary
+}
 
 ###############################################################################
 # Main
 ###############################################################################
 
-print_header "Monitoring-netcup test"
+case "${1:-}" in
 
-check_environment
-check_docker_environment
+    "")
+        run_runtime_tests
+        ;;
 
-test_project
-test_stack
-test_environment
-test_compose
-test_docker
-test_dockge
-test_networks
-test_backend_security
+    --static)
+        run_static_tests
+        ;;
 
-###############################################################################
-# Services
-###############################################################################
+    -h|--help)
+        show_help
+        exit 0
+        ;;
 
-#
-# Post deployment
-#
+    *)
+        fail "Unknown option: ${1}"
+        ;;
 
-test_summary
+esac

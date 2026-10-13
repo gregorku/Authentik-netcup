@@ -2,13 +2,24 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/check-env.sh
 #
 # Description:
-#   Validate Monitoring-netcup environment configuration.
+#   Validate the runtime environment configuration.
+#
+# Usage:
+#   ./scripts/check-env.sh
+#   ./scripts/check-env.sh --help
+#
+#   Rejects a missing variable, an unknown variable, a set_* placeholder,
+#   a PostgreSQL password longer than 99 characters, a short
+#   AUTHENTIK_SECRET_KEY, conflicting SMTP TLS flags and a backup path
+#   that points at Git, the stack or persistent data.
+#
+#   Does not start containers and does not modify .env.
 #
 ###############################################################################
 
@@ -40,10 +51,51 @@ source "${SCRIPT_DIR}/lib/logging.sh"
 source "${SCRIPT_DIR}/lib/env/load.sh"
 
 ###############################################################################
+# Help
+###############################################################################
+
+show_help()
+{
+cat <<EOF
+Authentik-netcup Project
+
+Usage:
+
+    ./scripts/check-env.sh
+    ./scripts/check-env.sh --help
+
+Description:
+
+    Validate ${ENV_FILE}. Placeholders that start with set_ are
+    rejected. An empty BACKUP_EXTERNAL_DIR is valid and means that
+    backup.sh keeps only the local archive.
+
+    Run this after ./scripts/update-env.sh and before ./scripts/deploy.sh.
+
+EOF
+}
+
+###############################################################################
 # Main
 ###############################################################################
 
-print_header "Monitoring-netcup Environment Check"
+case "${1:-}" in
+
+    "")
+        ;;
+
+    -h|--help)
+        show_help
+        exit 0
+        ;;
+
+    *)
+        fail "Unknown option: ${1}"
+        ;;
+
+esac
+
+print_header "Authentik-netcup Environment Check"
 
 check_environment
 

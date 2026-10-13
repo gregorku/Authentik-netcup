@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/common.sh
 #
 # Description:
-#   Common helper functions used by all Monitoring-netcup scripts.
+#   Common helper functions used by all Authentik-netcup scripts.
 #
 ###############################################################################
 
@@ -97,7 +97,7 @@ require_file_or_directory() {
 ###############################################################################
 # Environment
 #
-# Generic environment required by all Monitoring-netcup scripts.
+# Generic environment required by all Authentik-netcup scripts.
 ###############################################################################
 
 check_environment() {

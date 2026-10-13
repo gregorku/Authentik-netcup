@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/tests/environment.sh
@@ -16,6 +16,8 @@ test_environment()
     print_section ".env"
 
     require_file "${STACK_DIR}/.env"
+
+    env_validate
 
     ok ".env OK."
 }

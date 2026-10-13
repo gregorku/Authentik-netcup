@@ -2,13 +2,33 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/reload.sh
 #
 # Description:
-#   Reload Monitoring-netcup containers.
+#   Reload Authentik-netcup containers.
+#
+# Usage:
+#   ./scripts/reload.sh
+#   ./scripts/reload.sh --pull
+#   ./scripts/reload.sh --help
+#
+# What it runs:
+#   1. ./scripts/deploy.sh
+#      deploy.sh already pulls images once and starts the stack.
+#   2. docker compose up -d --force-recreate --remove-orphans
+#      --force-recreate replaces the running containers even when the
+#      Compose config did not change.
+#      --remove-orphans removes services that are no longer in the
+#      Compose project. It does not remove DATA_DIR or named volumes
+#      outside this project.
+#   3. ./scripts/post-deploy.sh
+#   4. ./scripts/test.sh
+#
+# --pull is accepted so existing automation does not fail. It does not
+# pull a second time. Image download happens inside deploy.sh.
 #
 ###############################################################################
 
@@ -41,23 +61,34 @@ source "${SCRIPT_DIR}/lib/docker-compose.sh"
 show_help()
 {
 cat <<EOF
-Monitoring-netcup Project
+Authentik-netcup Project
 
 Usage:
 
-    ./scripts/reload.sh [OPTION]
+    ./scripts/reload.sh
+    ./scripts/reload.sh --pull
+    ./scripts/reload.sh --help
 
 Options:
 
     --pull
-        Pull Docker images before reload.
+        Accepted for compatibility. Images are pulled once by deploy.sh.
+        This option does not pull them again.
 
     -h, --help
         Show this help.
 
 Description:
 
-    Reload the Monitoring-netcup Docker stack.
+    Run deploy.sh, then recreate the Compose containers:
+
+        docker compose up -d --force-recreate --remove-orphans
+
+    --force-recreate builds new containers from the current config.
+    --remove-orphans deletes services that left the Compose file.
+    Persistent data in ${DATA_DIR} is not removed.
+
+    Afterwards post-deploy.sh and test.sh run.
 
 EOF
 }
@@ -67,23 +98,26 @@ EOF
 ###############################################################################
 
 case "${1:-}" in
+
     "")
         ;;
-    --pull)
-        print_header "Pulling Docker images"
 
-        compose_cmd pull
+    --pull)
+        info "--pull is accepted. deploy.sh pulls images once."
         ;;
+
     -h|--help)
         show_help
         exit 0
         ;;
+
     *)
         fail "Unknown option: ${1}"
         ;;
+
 esac
 
-print_header "Monitoring-netcup reload"
+print_header "Authentik-netcup reload"
 
 ###############################################################################
 # Deploy
@@ -96,6 +130,8 @@ print_header "Monitoring-netcup reload"
 ###############################################################################
 
 print_section "Reload containers"
+
+info "Recreating containers with --force-recreate --remove-orphans."
 
 compose_reload
 

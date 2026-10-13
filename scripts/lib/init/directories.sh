@@ -2,9 +2,10 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
-# Prepare persistent service directories.
+# Prepare persistent directories that are not part of the Git checkout
+# and not part of the synchronized stack.
 #
 ###############################################################################
 
@@ -13,12 +14,11 @@ init_directories()
     log_step "Project directories"
 
     ensure_directory "${DATA_DIR}"
+    ensure_directory "${BACKUP_LOCAL_DIR}"
 
-    ensure_directory "${GRAFANA_DIR}"
-    ensure_directory "${PROMETHEUS_DIR}"
-    ensure_directory "${ALERTMANAGER_DIR}"
-    ensure_directory "${LOKI_DIR}"
-    ensure_directory "${ALLOY_DIR}"
+    chmod 700 "${BACKUP_LOCAL_DIR}"
+
+    ok "Permissions 700: ${BACKUP_LOCAL_DIR}"
 
     log_success "Project directories ready."
 }

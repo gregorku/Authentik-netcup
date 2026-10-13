@@ -1,23 +1,25 @@
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # Main Docker Compose entry point.
 #
-# Traefik is NOT part of this stack. Reverse proxying is handled by the
-# separate Infrastructure-netcup Incus container at 10.10.10.10.
+# Traefik is NOT part of this stack. Reverse proxying, DNS and TLS are
+# handled by the separate Infrastructure-netcup Incus container.
+# The backend is http://10.10.10.100:9000.
+#
+# Redis is not included. authentik 2025.10 removed it, and the upstream
+# 2026.8 Compose file ships PostgreSQL, server and worker only.
+# The embedded outpost runs inside the server. There is no separate
+# proxy outpost service and the Docker socket is not mounted.
 #
 ###############################################################################
 
-name: monitoring-netcup
+name: authentik-netcup
 
 include:
 
   - compose/00-networks.yml
-  - compose/20-prometheus.yml
-  - compose/30-snmp-exporter.yml
-  - compose/31-blackbox_exporter.yml
-  - compose/40-alertmanager.yml
-  - compose/50-grafana.yml
-  - compose/60-loki.yml
-  - compose/70-alloy.yml
+  - compose/10-postgresql.yml
+  - compose/20-authentik-server.yml
+  - compose/30-authentik-worker.yml

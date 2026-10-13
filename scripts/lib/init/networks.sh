@@ -2,10 +2,12 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
-# Create the single Docker network used inside the Monitoring-netcup Incus
-# container.
+# Create the Docker network used inside the Authentik Incus container.
+#
+# Compose marks the network external, so this step has to run before
+# the first docker compose up.
 #
 ###############################################################################
 
@@ -22,7 +24,12 @@ create_docker_network()
 
     log_info "Creating Docker network '${network_name}'..."
 
-    docker network create         --driver bridge         --subnet "${subnet}"         --gateway "${gateway}"         "${network_name}"         >/dev/null
+    docker network create \
+        --driver bridge \
+        --subnet "${subnet}" \
+        --gateway "${gateway}" \
+        "${network_name}" \
+        >/dev/null
 
     log_success "Docker network '${network_name}' created."
 }
@@ -31,7 +38,10 @@ init_networks()
 {
     log_step "Docker networks"
 
-    create_docker_network         "${NETWORK_INTERNAL}"         "${NETWORK_INTERNAL_SUBNET}"         "${NETWORK_INTERNAL_GATEWAY}"
+    create_docker_network \
+        "${NETWORK_INTERNAL}" \
+        "${NETWORK_INTERNAL_SUBNET}" \
+        "${NETWORK_INTERNAL_GATEWAY}"
 
     log_success "Docker networks ready."
 }

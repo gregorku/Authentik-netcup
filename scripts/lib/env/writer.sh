@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/env/writer.sh
@@ -40,6 +40,8 @@ backup_file()
 
     cp "${source}" "${backup}"
 
+    chmod 600 "${backup}"
+
     ok "Backup created: $(basename "${backup}")"
 }
 
@@ -57,7 +59,21 @@ env_write_file()
 
     cat > "${ENV_TMP_FILE}"
 
+    #
+    # The runtime file holds the database password and
+    # AUTHENTIK_SECRET_KEY. Keep it, the temporary file and the
+    # timestamped backup readable only by root.
+    #
+
+    chmod 600 "${ENV_TMP_FILE}"
+
+    if [[ -f "${ENV_FILE}" ]]; then
+        chmod 600 "${ENV_FILE}"
+    fi
+
     mv "${ENV_TMP_FILE}" "${ENV_FILE}"
+
+    chmod 600 "${ENV_FILE}"
 
     ok ".env written."
 }

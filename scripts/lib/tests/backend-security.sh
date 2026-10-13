@@ -2,11 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
-# Verify that application backends are bound only to the Incus container IP.
-# Authentication itself is intentionally handled by Infrastructure-netcup
-# Traefik, not by this project.
+# Verify that the Authentik HTTP backend is bound only to the Incus
+# container IP. PostgreSQL has no published host port.
+#
+# Authentication of the public name auth.serveftp.org is handled by
+# Infrastructure-netcup Traefik, not by this project.
 #
 ###############################################################################
 
@@ -14,52 +16,32 @@ test_backend_security()
 {
     print_section "Backend exposure"
 
-    local monitoring_host_ip
-    local ports
+    local host
     local port
 
-    monitoring_host_ip="$(env_get MONITORING_HOST_IP)"
+    host="$(env_get AUTHENTIK_HOST_IP)"
+    port="$(env_get AUTHENTIK_HTTP_PORT)"
 
-    ports=(
-        "$(env_get GRAFANA_PORT)"
-        "$(env_get PROMETHEUS_PORT)"
-        "$(env_get ALERTMANAGER_PORT)"
-        "$(env_get LOKI_PORT)"
-        "$(env_get ALLOY_PORT)"
-    )
+    docker ps --format '{{.Ports}}' \
+        | grep -Eq "(^|, )${host}:${port}->" \
+        || fail "Port ${port} is not bound to ${host}."
 
-    for port in "${ports[@]}"; do
+    ok "Authentik HTTP is bound to ${host}:${port}."
 
-        docker ps --format '{{.Ports}}' \
-            | grep -Eq "(^|, )${monitoring_host_ip}:${port}->" \
-            || fail "Port ${port} is not bound to ${monitoring_host_ip}."
+    if docker ps --format '{{.Names}} {{.Ports}}' \
+        | grep -E "${POSTGRESQL_CONTAINER}" \
+        | grep -Eq '[0-9]+:5432->'; then
 
-    done
-
-    ok "Application backends are bound to ${monitoring_host_ip}."
-
-    #
-    # Blackbox Exporter
-    #
-    # Blackbox Exporter is an internal monitoring service.
-    # Prometheus accesses it through the Docker network using
-    # the container name "blackbox-exporter" on port 9115.
-    #
-    # Port 9115 must therefore NOT be published on the
-    # monitoring host.
-    #
-
-    if docker ps --format '{{.Names}}' \
-        | grep -qx "blackbox-exporter"; then
-
-        docker ps --format '{{.Ports}}' \
-            | grep -Eq "(^|, )${monitoring_host_ip}:9115->" \
-            && fail "Blackbox Exporter port 9115 must not be exposed on ${monitoring_host_ip}."
-
-        ok "Blackbox Exporter is not exposed on ${monitoring_host_ip}."
-
+        fail "PostgreSQL port 5432 is published."
     fi
 
-    log_info \
-        "Final access control is provided by the Infrastructure-netcup firewall and Traefik BasicAuth."
+    ok "PostgreSQL has no published host port."
+
+    if docker ps --format '{{.Ports}}' | grep -Eq '9443->'; then
+        fail "Authentik HTTPS port 9443 must not be published."
+    fi
+
+    ok "Port 9443 is not published."
+
+    log_info "Public TLS and routing stay in Infrastructure-netcup Traefik."
 }

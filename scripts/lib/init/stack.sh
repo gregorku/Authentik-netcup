@@ -3,36 +3,46 @@
 # File: scripts/lib/init/stack.sh
 #
 # Description:
-#   Initial preparation of the Monitoring-netcup deployment stack.
+#   Initial preparation of the Authentik-netcup deployment stack.
 #
 # Responsibilities:
 #   - create STACK_DIR
 #   - copy all deployment items from the Git repository
-#   - overwrite any previous content
+#   - replace any previous content of those items
 #
 # This function is intended to be called ONLY from init.sh.
 # For regular deployments use deploy_sync_stack().
+#
+# The copy removes and replaces each DEPLOY_ITEMS path and nothing
+# else. Runtime .env is not a deployment item.
 
-init_stack() {
+init_stack()
+{
     print_section "Project stack"
-    log_info "Preparing Monitoring-netcup stack..."
+
+    assert_sync_paths
+
+    log_info "Preparing Authentik-netcup stack..."
 
     mkdir -p "${STACK_DIR}"
 
+    local item
+    local src
+    local dst
+
     for item in "${DEPLOY_ITEMS[@]}"; do
-        local src="${GIT_DIR}/${item}"
-        local dst="${STACK_DIR}/${item}"
 
-        if [[ ! -e "${src}" ]]; then
-            log_error "Missing deployment item: ${src}"
-            return 1
-        fi
+        [[ "${item}" != /* && "${item}" != *..* && "${item}" != */* ]] \
+            || fail "DEPLOY_ITEMS entry is not a single path name: ${item}"
 
-        rm -rf "${dst}"
-        cp -a "${src}" "${dst}"
+        src="${GIT_DIR}/${item}"
+        dst="${STACK_DIR}/${item}"
+
+        sync_replace_item "${src}" "${dst}" "${STACK_DIR}"
 
         log_info "Copied ${item}"
+
     done
 
-    log_success "Monitoring-netcup stack prepared."
+    log_success "Authentik-netcup stack prepared."
 }

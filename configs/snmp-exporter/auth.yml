@@ -1,5 +1,0 @@
-auths:
-  public_v2:
-    community: public
-    security_level: noAuthNoPriv
-    version: 2

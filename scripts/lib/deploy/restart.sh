@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # No local reverse proxy has to be restarted. Infrastructure-netcup owns
 # Traefik and its configuration.

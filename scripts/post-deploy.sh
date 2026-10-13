@@ -2,13 +2,23 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/post-deploy.sh
 #
 # Description:
-#   Configure services after the stack is running.
+#   Check the running Authentik stack after deploy or reload.
+#
+# Usage:
+#   ./scripts/post-deploy.sh
+#   ./scripts/post-deploy.sh --help
+#
+#   Requires the three containers to be running. Health checks that
+#   cannot be executed fail the script. This does not configure Traefik.
+#
+# Next step:
+#   ./scripts/test.sh
 #
 ###############################################################################
 
@@ -52,25 +62,66 @@ source "${SCRIPT_DIR}/lib/env/load.sh"
 # Post-deployment modules
 ###############################################################################
 
-source "${SCRIPT_DIR}/lib/post-deploy/summary.sh"
+source "${SCRIPT_DIR}/lib/post-deploy/checks.sh"
+
+###############################################################################
+# Help
+###############################################################################
+
+show_help()
+{
+cat <<EOF
+Authentik-netcup Project
+
+Usage:
+
+    ./scripts/post-deploy.sh
+    ./scripts/post-deploy.sh --help
+
+Description:
+
+    After the stack is up, check data directories, container health
+    and the HTTP bind ${AUTHENTIK_HOST_IP}:${AUTHENTIK_HTTP_PORT}.
+
+    PostgreSQL must report healthy. The server and the worker must
+    pass "ak healthcheck". A skipped check is not treated as success.
+
+EOF
+}
 
 ###############################################################################
 # Main
 ###############################################################################
 
-print_header "Monitoring-netcup post deployment"
+case "${1:-}" in
 
-#
-# Verify environment.
-#
+    "")
+        ;;
+
+    -h|--help)
+        show_help
+        exit 0
+        ;;
+
+    *)
+        fail "Unknown option: ${1}"
+        ;;
+
+esac
+
+print_header "Authentik-netcup post deployment"
+
 check_environment
 
-#
-# Verify Docker.
-#
 check_docker_environment
 
-#
-# Print summary.
-#
-post_deploy_summary
+post_deploy_checks
+
+print_footer "Post deployment completed."
+
+echo
+
+info "Next step:"
+info "  ./scripts/test.sh"
+
+echo

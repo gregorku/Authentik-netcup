@@ -1,16 +1,19 @@
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
-# Docker network used only inside the Monitoring-netcup Incus container.
+# Docker network used only inside the Authentik Incus container.
+# init.sh creates it. Compose does not, because it is external.
+#
+# Subnet 10.42.0.0/16 is documented in scripts/config.sh.
 # Traefik is external and runs in Infrastructure-netcup.
 #
 ###############################################################################
 
 networks:
 
-  monitoring-netcup:
+  authentik-netcup:
 
-    name: monitoring-netcup
+    name: authentik-netcup
 
     external: true

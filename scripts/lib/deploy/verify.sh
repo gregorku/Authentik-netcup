@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/deploy/verify.sh
 #
 # Description:
-#   Verify Monitoring-netcup project before deployment.
+#   Verify Authentik-netcup project before deployment.
 #
 ###############################################################################
 

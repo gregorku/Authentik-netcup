@@ -2,13 +2,13 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/logging.sh
 #
 # Description:
-#   Common logging functions used by all Monitoring-netcup scripts.
+#   Common logging functions used by all Authentik-netcup scripts.
 #
 ###############################################################################
 # Internal logging functions

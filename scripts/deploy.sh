@@ -2,19 +2,35 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/deploy.sh
 #
 # Description:
-#   Deploy Monitoring-netcup services.
+#   Deploy Authentik-netcup services inside the existing Incus container.
+#
+# Usage:
+#   ./scripts/deploy.sh
+#   ./scripts/deploy.sh --help
 #
 # Responsibilities:
-#   - Verify deployment environment
-#   - Deploy Dockge
-#   - Deploy Monitoring-netcup Docker Compose stack
-#   - Print deployment summary
+#   - Verify the deployment environment
+#   - Synchronize DEPLOY_ITEMS into the runtime stack
+#   - Verify .env
+#   - Verify the existing Dockge container
+#   - Validate Docker Compose
+#   - Pull images and start the stack
+#
+# Side effects:
+#   - rsync --delete may remove files under STACK_DIR/compose and
+#     STACK_DIR/configs that are no longer in Git
+#   - Does not modify DATA_DIR, backup archives or the runtime .env
+#   - Pulls images and runs docker compose up -d
+#   - Does not reinstall Dockge
+#
+# Next step:
+#   ./scripts/post-deploy.sh
 #
 ###############################################################################
 
@@ -71,10 +87,58 @@ source "${SCRIPT_DIR}/lib/deploy/summary.sh"
 source "${SCRIPT_DIR}/lib/deploy/restart.sh"
 
 ###############################################################################
+# Help
+###############################################################################
+
+show_help()
+{
+cat <<EOF
+Authentik-netcup Project
+
+Usage:
+
+    ./scripts/deploy.sh
+    ./scripts/deploy.sh --help
+
+Description:
+
+    Synchronize the Git checkout into ${STACK_DIR}, validate .env and
+    Compose, pull the pinned images and start the stack.
+
+    Directory items in DEPLOY_ITEMS are synchronized with
+    rsync --delete. That removes files deleted from compose/ and
+    configs/ in Git. It does not delete .env, ${DATA_DIR} or
+    ${BACKUP_LOCAL_DIR}.
+
+    Dockge is only checked. It is not installed or replaced.
+
+    Run this inside the Incus container ${AUTHENTIK_HOST_IP}, as root,
+    after ./scripts/update-env.sh and ./scripts/check-env.sh.
+
+EOF
+}
+
+###############################################################################
 # Main
 ###############################################################################
 
-print_header "Monitoring-netcup deployment"
+case "${1:-}" in
+
+    "")
+        ;;
+
+    -h|--help)
+        show_help
+        exit 0
+        ;;
+
+    *)
+        fail "Unknown option: ${1}"
+        ;;
+
+esac
+
+print_header "Authentik-netcup deployment"
 
 #
 # Verify environment.
@@ -89,8 +153,8 @@ check_docker_environment
 #
 # Sync project structure.
 #
-
 deploy_sync_stack
+
 #
 # Verify project structure.
 #
@@ -102,7 +166,7 @@ deploy_verify_project
 deploy_check_env
 
 #
-# Deploy Dockge.
+# Confirm existing Dockge. Do not reinstall it.
 #
 deploy_dockge
 
@@ -112,7 +176,7 @@ deploy_dockge
 deploy_validate_compose
 
 #
-# Deploy Monitoring-netcup stack.
+# Pull images and start the stack.
 #
 deploy_compose
 

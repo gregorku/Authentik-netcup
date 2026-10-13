@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/env/helpers.sh
@@ -55,4 +55,29 @@ env_variable_name()
 env_variable_value()
 {
     printf '%s\n' "${1#*=}"
+}
+
+###############################################################################
+# Placeholder
+#
+# .env.example marks unset production values with the set_ prefix.
+# Those values are not usable in a deployment.
+###############################################################################
+
+env_is_placeholder()
+{
+    [[ "$1" == set_* ]]
+}
+
+###############################################################################
+# Sensitive variable
+#
+# Difference reports must not print these values.
+###############################################################################
+
+env_is_sensitive()
+{
+    local key="$1"
+
+    [[ "${key}" == *PASSWORD* || "${key}" == *SECRET* || "${key}" == PG_PASS ]]
 }

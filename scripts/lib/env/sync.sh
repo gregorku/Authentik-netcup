@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/env/sync.sh
@@ -13,10 +13,14 @@
 # Responsibilities:
 #   - Create .env on first run
 #   - Preserve user values
+#   - Preserve an existing generated secret
+#   - Generate a secret only when the current value is missing or is
+#     still a set_* placeholder
 #   - Preserve comments
 #   - Preserve blank lines
-#   - Preserve variable order
+#   - Preserve variable order from .env.example
 #   - Apply environment policy
+#   - Drop variables that .env.example no longer contains
 #
 ###############################################################################
 
@@ -26,6 +30,9 @@
 
 env_sync()
 {
+    [[ -f "${ENV_EXAMPLE_FILE}" ]] \
+        || fail ".env.example not found in the runtime stack. Run ./scripts/init.sh first."
+
     ###########################################################################
     # First run
     ###########################################################################
@@ -36,11 +43,10 @@ env_sync()
         log_info "Creating .env from .env.example..."
 
         cp "${ENV_EXAMPLE_FILE}" "${ENV_FILE}"
+        chmod 600 "${ENV_FILE}"
 
         log_success "Environment file created."
-        log_warn "Please edit '${ENV_FILE}' before running deploy.sh."
 
-        return 0
     fi
 
     ###########################################################################
@@ -110,12 +116,31 @@ env_sync()
                 value="${example_value}"
                 ;;
 
-            user|generated)
+            user)
 
                 if [[ -n "${current_value}" ]]; then
                     value="${current_value}"
                 else
                     value="${example_value}"
+                fi
+                ;;
+
+            generated)
+
+                #
+                # Keep a real secret. Replace only a missing value or a
+                # set_* placeholder. Do not rotate a key that is already
+                # in use: Authentik invalidates sessions when
+                # AUTHENTIK_SECRET_KEY changes.
+                #
+
+                if [[ -n "${current_value}" ]] \
+                    && ! env_is_placeholder "${current_value}"; then
+
+                    value="${current_value}"
+                else
+                    value="$(env_generate_secret_for "${key}")"
+                    log_info "Generated ${key}."
                 fi
                 ;;
 
@@ -134,11 +159,15 @@ env_sync()
             && [[ -n "${current_value}" ]] \
             && [[ "${current_value}" != "${example_value}" ]]; then
 
-            log_info "${key} differs"
+            if env_is_sensitive "${key}"; then
+                log_info "${key} differs. Keeping user value."
+            else
+                log_info "${key} differs"
 
-            printf "       .env         : %s\n" "${current_value}"
-            printf "       .env.example : %s\n" "${example_value}"
-            printf "       Keeping user value.\n\n"
+                printf "       .env         : %s\n" "${current_value}"
+                printf "       .env.example : %s\n" "${example_value}"
+                printf "       Keeping user value.\n\n"
+            fi
 
             #
             # NOTE: NOT "((differences++))" -- under "set -e",
@@ -174,4 +203,5 @@ env_sync()
     env_write_file <<< "${output}"
 
     log_success ".env synchronized."
+    log_warn "Placeholders that still start with set_ must be replaced before deploy.sh."
 }

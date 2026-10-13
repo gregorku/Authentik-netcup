@@ -2,7 +2,7 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/filesystem.sh
@@ -36,8 +36,7 @@ ensure_directory() {
 #   ensure_directory_owner /path/to/directory 65534:65534
 #
 # Notes:
-#   Needed for containers that run as a non-root user
-#   (e.g. Prometheus runs as "nobody" / 65534:65534) and
+#   Needed for containers that run as a non-root user and
 #   would otherwise get "permission denied" writing to a
 #   bind-mounted directory owned by root.
 #

@@ -2,19 +2,18 @@
 
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # Environment variable policies.
+#
+#   framework   replaced from .env.example on every update-env.sh run
+#   user        existing non-empty value is kept
+#   generated   existing non-placeholder value is kept; otherwise a new
+#               secret is generated once and then kept
 #
 ###############################################################################
 
 declare -gA ENV_POLICY
-
-###############################################################################
-# General
-###############################################################################
-
-ENV_POLICY[TZ]="user"
 
 ###############################################################################
 # Docker Compose
@@ -23,70 +22,65 @@ ENV_POLICY[TZ]="user"
 ENV_POLICY[COMPOSE_PROJECT_NAME]="framework"
 
 ###############################################################################
-# Monitoring host / backend ports
-###############################################################################
-
-ENV_POLICY[MONITORING_HOST_IP]="user"
-
-ENV_POLICY[GRAFANA_PORT]="framework"
-ENV_POLICY[PROMETHEUS_PORT]="framework"
-ENV_POLICY[ALERTMANAGER_PORT]="framework"
-ENV_POLICY[LOKI_PORT]="framework"
-ENV_POLICY[ALLOY_PORT]="framework"
-
-###############################################################################
-# Grafana
-###############################################################################
-
-ENV_POLICY[GRAFANA_VERSION]="framework"
-ENV_POLICY[GRAFANA_ADMIN_USER]="user"
-ENV_POLICY[GRAFANA_ADMIN_PASSWORD]="user"
-ENV_POLICY[GRAFANA_DOMAIN]="user"
-ENV_POLICY[IP_GRAFANA]="user"
-
-###############################################################################
-# Prometheus
-###############################################################################
-
-ENV_POLICY[PROMETHEUS_VERSION]="framework"
-ENV_POLICY[PROMETHEUS_RETENTION]="user"
-ENV_POLICY[IP_PROMETHEUS]="user"
-ENV_POLICY[PROMETHEUS_PUBLIC_URL]="user"
-
-###############################################################################
-# SNMP exporter
-###############################################################################
-
-ENV_POLICY[SNMP_EXPORTER_VERSION]="framework"
-ENV_POLICY[IP_SNMP_EXPORTER]="user"
-
-###############################################################################
-# Alertmanager
-###############################################################################
-
-ENV_POLICY[ALERTMANAGER_VERSION]="framework"
-ENV_POLICY[ALERTMANAGER_PUBLIC_URL]="user"
-ENV_POLICY[IP_ALERTMANAGER]="user"
-
-###############################################################################
-# Loki
-###############################################################################
-
-ENV_POLICY[LOKI_VERSION]="framework"
-ENV_POLICY[IP_LOKI]="user"
-
-###############################################################################
-# Alloy
-###############################################################################
-
-ENV_POLICY[ALLOY_VERSION]="framework"
-ENV_POLICY[IP_ALLOY]="user"
-
-###############################################################################
 # Persistent data
 ###############################################################################
 
-ENV_POLICY[DATA_DIR]="user"
+ENV_POLICY[DATA_DIR]="framework"
+
+###############################################################################
+# Authentik host
+###############################################################################
+
+ENV_POLICY[AUTHENTIK_HOST_IP]="framework"
+ENV_POLICY[AUTHENTIK_HTTP_PORT]="framework"
+ENV_POLICY[AUTHENTIK_DOMAIN]="user"
+
+###############################################################################
+# Images
+###############################################################################
+
+ENV_POLICY[AUTHENTIK_IMAGE]="framework"
+ENV_POLICY[AUTHENTIK_TAG]="framework"
+ENV_POLICY[POSTGRES_IMAGE]="framework"
+
+###############################################################################
+# PostgreSQL
+###############################################################################
+
+ENV_POLICY[PG_DB]="framework"
+ENV_POLICY[PG_USER]="framework"
+ENV_POLICY[PG_PASS]="generated"
+
+###############################################################################
+# Authentik
+###############################################################################
+
+ENV_POLICY[AUTHENTIK_SECRET_KEY]="generated"
+ENV_POLICY[AUTHENTIK_POSTGRESQL__SSLMODE]="framework"
+ENV_POLICY[AUTHENTIK_ERROR_REPORTING__ENABLED]="framework"
+ENV_POLICY[AUTHENTIK_OUTPOSTS__DISCOVER]="framework"
+ENV_POLICY[AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS]="user"
+
+###############################################################################
+# Internal addresses
+###############################################################################
+
+ENV_POLICY[IP_POSTGRESQL]="user"
+ENV_POLICY[IP_AUTHENTIK_SERVER]="user"
+ENV_POLICY[IP_AUTHENTIK_WORKER]="user"
+
+###############################################################################
+# SMTP
+###############################################################################
+
+ENV_POLICY[AUTHENTIK_EMAIL__HOST]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__PORT]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__USERNAME]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__PASSWORD]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__USE_TLS]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__USE_SSL]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__TIMEOUT]="user"
+ENV_POLICY[AUTHENTIK_EMAIL__FROM]="user"
 
 ###############################################################################
 # Logging
@@ -94,6 +88,14 @@ ENV_POLICY[DATA_DIR]="user"
 
 ENV_POLICY[LOG_MAX_SIZE]="framework"
 ENV_POLICY[LOG_MAX_FILES]="framework"
+
+###############################################################################
+# External backup destination
+#
+# Empty is valid and means "local backup only".
+###############################################################################
+
+ENV_POLICY[BACKUP_EXTERNAL_DIR]="user"
 
 ###############################################################################
 # Return variable policy

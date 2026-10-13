@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ###############################################################################
 #
-# Monitoring-netcup Project
+# Authentik-netcup Project
 #
 # File:
 #   scripts/lib/tests/docker.sh
@@ -19,27 +19,4 @@ test_docker()
         || fail "Docker daemon is not available."
 
     ok "Docker daemon OK."
-}
-
-###############################################################################
-#
-# Get HTTP response headers from inside a container.
-#
-# Usage:
-#   docker_http_headers <container> <url>
-#
-###############################################################################
-
-docker_http_headers()
-{
-    local container="$1"
-    local url="$2"
-
-    docker_exec "${container}" \
-        wget \
-            --no-check-certificate \
-            -S \
-            -O /dev/null \
-            "${url}" \
-            2>&1 || true
 }
