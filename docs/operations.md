@@ -6,10 +6,11 @@ Příkazy patří do kontejneru `10.10.10.100` a spouštějí se jako root. Z pr
 
 Ověří root, `git` a `rsync`. Pak:
 
-1. vytvoří `/docker-data/authentik-netcup` a `/docker-data/backups/authentik-netcup` (mód `700`);
-2. zkopíruje `DEPLOY_ITEMS` do `/docker-data/stacks/authentik-netcup` a u každé položky nahradí předchozí obsah;
-3. vytvoří Docker síť `authentik-netcup`, pokud chybí;
-4. nastaví vlastníka PostgreSQL (`70:70`) a adresářů Authentiku (`1000:1000`).
+1. vytvoří `/docker-data/authentik-netcup` přes `mkdir -p` a mód `700` na tento adresář ani na jeho podstrom nenastaví. Adresář vlastní root. Průchod pro ostatní, který u rootu s `umask 022` dává `mkdir` jako mód `755`, potřebují PostgreSQL UID `70` a Authentik UID `1000`, aby se dostaly do svých podadresářů;
+2. vytvoří `/docker-data/backups/authentik-netcup` a mód `700` nastaví jen jemu. Čte a zapisuje ho root při záloze;
+3. zkopíruje `DEPLOY_ITEMS` do `/docker-data/stacks/authentik-netcup` a u každé položky nahradí předchozí obsah;
+4. vytvoří Docker síť `authentik-netcup`, pokud chybí;
+5. nastaví vlastníka `70:70` u `postgresql` a `1000:1000` u `authentik/data`, `authentik/templates` a `authentik/certs`. `chown` mód nadřazeného `/docker-data/authentik-netcup` nemění.
 
 `.env` v tomto kroku nevzniká. Kontejnery se nespouštějí.
 
@@ -74,4 +75,4 @@ Po recreate následuje `post-deploy.sh` a `test.sh`.
 
 ## Záloha
 
-`./scripts/backup.sh` a `./scripts/restore.sh` jsou popsané v `docs/backup-restore.md`.
+`./scripts/backup.sh` a `./scripts/restore.sh` jsou popsané v `docs/backup-restore.md`. Příkaz `age` musí být nainstalovaný v cílovém Debian 13 kontejneru. Prázdný `BACKUP_AGE_RECIPIENT` `backup.sh` odmítne a archiv nezapíše. Prázdný `BACKUP_EXTERNAL_DIR` vypíše, že šifrovaný soubor zůstává jen na tomto Incus kontejneru. Ostrou zálohu tvoří veřejný příjemce age a cíl, který je ověřený mimo kontejner. Soukromá identita pro `--identity` zůstává oddělená, mimo Git, stack, data a lokální zálohy.

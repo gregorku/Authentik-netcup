@@ -112,9 +112,11 @@ Options:
         of the encrypted file.
 
     --identity PATH
-        age identity used only to decrypt. It must be mode 600 or 400
-        and must not live in Git, the stack, DATA_DIR, or the local
-        backup directory. It is not copied into the archive.
+        age identity used only to decrypt. age must be installed in
+        this Debian 13 container. The identity file must be mode 600
+        or 400 and must be available outside Git, the stack, DATA_DIR
+        and the local backup directory. It is not copied into the
+        archive.
 
     --confirm ${STACK_NAME}
         Required. Any other value is refused.
@@ -233,9 +235,17 @@ if ! backup_decrypt_file "${archive}" "${plain}" "${identity}"; then
     fail "Could not decrypt the archive. Persistent data was not changed."
 fi
 
+if ! backup_require_private_tree "${secret_tmp}"; then
+    fail "Decrypted archive is not mode 600 in a mode 700 directory. Persistent data was not changed."
+fi
+
 stage="$(mktemp -d)"
 tar -C "${stage}" -xzf "${plain}"
 backup_destroy_file "${plain}" || fail "Could not remove the decrypted archive. Persistent data was not changed."
+
+if ! backup_require_private_tree "${stage}"; then
+    fail "Decrypted stage is not mode 700 with mode 600 files. Persistent data was not changed."
+fi
 
 restore_validate_stage "${stage}"
 

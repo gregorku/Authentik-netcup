@@ -4,13 +4,28 @@
 
 Trvalý archiv je soubor `tar.gz.age`. Šifruje ho [age](https://github.com/FiloSottile/age) pro veřejného příjemce `BACKUP_AGE_RECIPIENT` v runtime `.env`. Příjemce je `age1…` nebo veřejný SSH klíč.
 
-Soukromý klíč (`AGE-SECRET-KEY-…`) do Gitu, do archivu ani do stacku nepatří. Obnova ho čte jen z `--identity`. Soubor identity musí mít mód `600` nebo `400` a nesmí ležet v Gitu, ve stacku, v `DATA_DIR` ani v lokálním adresáři záloh. `age` ho čte přes deskriptor souboru, ne jako argument příkazu.
+Příkaz `age` musí být nainstalovaný v cílovém Debian 13 kontejneru. Statický test na pracovní stanici přítomnost `age` v tom kontejneru neověřuje.
+
+Soukromý klíč (`AGE-SECRET-KEY-…`) se neukládá do Gitu, do archivu, do stacku, do `DATA_DIR` ani do lokálního adresáře záloh. V okamžiku obnovy musí být soubor identity bezpečně dostupný mimo tato místa a předá se jen jako `--identity`. Mód souboru je `600` nebo `400`. `age` ho čte přes deskriptor souboru, ne jako argument příkazu.
 
 Když je `BACKUP_AGE_RECIPIENT` prázdný, nebo když v kontejneru není příkaz `age`, `backup.sh` archiv nezapíše a tento běh není bezpečná externí záloha.
 
-Kontrolní součet `.sha256` patří šifrovanému souboru. Nešifrovaný tar vznikne jen v dočasném adresáři `700` a po šifrování se přepíše nástrojem `shred`, pokud je k dispozici. Když se plaintext nepodaří smazat, skript neskončí jako dokončená záloha.
+## Dočasný plaintext
 
-`umask 077` je nastavený na začátku `backup.sh` a `restore.sh`. Dump, manifest, součet, `stack.env`, `.env.tmp` a rollback se zakládají rovnou s módem `600`, adresáře s módem `700`.
+Před šifrováním vznikne v `mktemp -d` (mód `700`) staging adresář. V něm jsou:
+
+- `postgresql/authentik.dump`, založený přes `install -m 600` a teprve potom plněný výstupem `pg_dump`;
+- kopie `authentik/data`, `authentik/templates` a `authentik/certs`, každý soubor založený jako `600`;
+- `stack.env`, kopie runtime `.env` přes `install -m 600`;
+- `manifest.txt`, založený jako `600`.
+
+`umask 077` je nastavený na začátku `backup.sh` a `restore.sh`. Skript po sestavení stromu mód zkontroluje a při jiném módu archiv nezapíše. Pozdější `chmod` tuto kontrolu nenahrazuje.
+
+Samostatný `plain.tar.gz` se nezakládá. Po kontrole stagingu jde `tar` na standardní výstup a `age` šifruje tento proud do dočasného `.age` souboru. `pipefail` hlídá návratový kód `tar` i `age`. Konečný archiv v adresáři záloh vznikne až po úspěchu celé pipeline a po ověření součtu toho dočasného souboru. Při chybě se neúplný `.age` smaže a běh není úspěšná záloha. Soukromá identita se při záloze nepoužívá. Obnova dál čte jen `.tar.gz.age`.
+
+Když je k dispozici `shred`, skript jím soubory ve stagingu jednou přepíše a smaže jejich jméno. To je nejlepší úsilí. `shred` nezaručuje, že data zmizela z SSD, z copy-on-write souborového systému ani ze snímku disku. Při pádu procesu nebo při `SIGKILL` se úklid nespustí a nešifrovaný staging může na disku zůstat. Bez `shred` se soubor jen odlinkuje.
+
+Kontrolní součet `.sha256` patří šifrovanému souboru.
 
 ## Co záloha obsahuje
 
@@ -22,9 +37,9 @@ Kontrolní součet `.sha256` patří šifrovanému souboru. Nešifrovaný tar vz
 4. udělá `pg_dump -Fc` lokálním socketem uživatele `postgres` uvnitř kontejneru;
 5. zkopíruje `authentik/data`, `authentik/templates` a `authentik/certs`;
 6. přidá kopii runtime `.env` jako `stack.env`;
-7. zapíše `manifest.txt` a ověří dump, adresáře a `AUTHENTIK_SECRET_KEY`;
-8. sbalí dočasný tar, rozbalí ho a znovu ověří obsah;
-9. zašifruje výsledek, spočítá součet šifrovaného souboru a smaže plaintext;
+7. zapíše `manifest.txt`, ověří mód `700`/`600` a teprve potom dump, adresáře a `AUTHENTIK_SECRET_KEY`;
+8. pošle `tar` ze stagingu na standardní výstup do `age` a zapíše dočasný `.age` soubor;
+9. po úspěchu pipeline a po ověření jeho součtu teprve uloží konečný šifrovaný archiv;
 10. spustí jen ty kontejnery Authentiku, které tento běh zastavil.
 
 Adresář dat PostgreSQL se nekopíruje. Konzistentní obraz databáze je dump.
@@ -38,6 +53,16 @@ Archiv:
 ```
 
 Tento adresář leží na disku Incus kontejneru. Ani šifrovaný soubor v něm není záloha mimo kontejner.
+
+## Ostrá záloha
+
+`check-env.sh` prázdný `BACKUP_AGE_RECIPIENT` i prázdný `BACKUP_EXTERNAL_DIR` přijme. To nasazení nezastaví a zálohu mimo kontejner to nevytvoří.
+
+Pro ostrou zálohu musí být v runtime `.env` veřejný příjemce `BACKUP_AGE_RECIPIENT` (`age1…` nebo veřejný SSH klíč) a ověřený cíl mimo Incus kontejner `10.10.10.100`. Soukromá identita (`AGE-SECRET-KEY-…`) do příjemce nepatří. Zůstává odděleně mimo Git, stack, `DATA_DIR` a `/docker-data/backups/authentik-netcup`. `backup.sh` ji nečte. Obnova ji dostane jen jako `--identity`, v souboru s módem `600` nebo `400`.
+
+`backup.sh` při prázdném příjemci, při soukromém klíči na místě příjemce, nebo když v kontejneru chybí příkaz `age`, archiv nezapíše. Při prázdném `BACKUP_EXTERNAL_DIR` archiv v lokálním adresáři nechá a výslovně vypíše, že jde o soubor jen na disku tohoto kontejneru.
+
+Cíl mimo kontejner ověřuje provoz, ne skript. `BACKUP_EXTERNAL_DIR` skript zkopíruje jen jako adresář mód `700` na jiném souborovém systému. Ani taková kopie sama o sobě nedokazuje, že úložiště opustilo Incus kontejner. Dokud takový cíl není, proměnná zůstane prázdná.
 
 ## Kopie na jiný adresář
 
@@ -102,4 +127,4 @@ Klíč a dump jsou svázané tím, že byly v jednom archivu se součty. Skript 
 
 ## Test bez produkčních dat
 
-`./scripts/test.sh --static` v dočasných adresářích pouští skutečné `age`, `shred`, `install` a `sha256sum`, když jsou na stroji. `pg_dump`, `pg_restore` a Docker při tom nespouští. Zastavení kontejnerů a načtení databáze jsou v příslušných testech nahrazené funkce. `SIGTERM` dostane pomocný proces, ne produkční `restore.sh`. Druhý souborový systém se nemountuje: test odmítne dva adresáře na tom, který právě běží.
+`./scripts/test.sh --static` v dočasných adresářích pouští skutečné `age`, `install`, `tar` a `sha256sum`, když jsou na stroji, a u souborů čte `stat`. `pg_dump`, `pg_restore` a Docker při tom nespouští. Zastavení kontejnerů a načtení databáze jsou v příslušných testech nahrazené funkce. `SIGTERM` dostane pomocný proces, ne produkční `restore.sh`. Druhý souborový systém se nemountuje: test odmítne dva adresáře na tom, který právě běží. Kontrola `shred` ověřuje jen to, že jméno souboru zmizelo. Neověřuje, že bloky na SSD nebo na copy-on-write souborovém systému jsou pryč.

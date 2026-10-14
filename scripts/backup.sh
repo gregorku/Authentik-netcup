@@ -21,8 +21,17 @@
 #   - manifest.txt with the time, image pins and sha256 checksums
 #
 # The kept file is name.tar.gz.age. age encrypts it to
-# BACKUP_AGE_RECIPIENT. The private identity is not in this script,
-# in Git, or in the stack. The sidecar checksum is of the .age file.
+# BACKUP_AGE_RECIPIENT. The age command has to be installed in this
+# Debian 13 container. The private identity is not in this script,
+# in Git, in the stack, in DATA_DIR, or in the backup directory.
+# The sidecar checksum is of the .age file.
+#
+# tar writes the stage to stdout and age encrypts that stream. No
+# plaintext tar file is written. The stage, dump, stack.env and
+# manifest are checked before that pipeline. The final .age file is
+# installed only after the pipeline and its checksum succeed.
+# shred of the stage is best effort: an SSD, a copy-on-write
+# filesystem, a snapshot, a crash or SIGKILL can leave plaintext.
 #
 # The PostgreSQL data directory itself is not copied. A file copy of
 # that directory would not be a consistent database backup.
@@ -111,8 +120,13 @@ Description:
     rsync --delete never sees this directory. It is not a DEPLOY_ITEMS
     path and it is not inside the runtime stack.
 
-    BACKUP_AGE_RECIPIENT is the public age recipient. Without it, or
-    without the age command, no archive is written.
+    BACKUP_AGE_RECIPIENT is the public age recipient. The age command
+    must be installed in this Debian 13 container. Without the
+    recipient, or without age, no archive is written.
+
+    The private identity is not read here. Keep it outside Git, the
+    stack, DATA_DIR and the local backup directory, and present it
+    only to restore.sh --identity.
 
     BACKUP_EXTERNAL_DIR receives an encrypted copy only when it is
     mode 700 and on a different filesystem from the local backup
@@ -161,15 +175,13 @@ backup_on_exit()
 
     trap - EXIT INT TERM HUP
 
-    if [[ -n "${verify_dir}" ]]; then
-        backup_destroy_tree "${verify_dir}" || status=1
+    if [[ -n "${encrypt_dir}" ]]; then
+        backup_destroy_tree "${encrypt_dir}" || status=1
     fi
 
-    if [[ -n "${plain_dir}" ]]; then
-        if ! backup_destroy_tree "${plain_dir}"; then
-            warn "Plaintext archive could not be removed: ${plain_dir}."
-            status=1
-        fi
+    if [[ "${archive_ready}" != "yes" && -n "${archive}" ]]; then
+        backup_destroy_file "${archive}" || status=1
+        backup_destroy_file "${archive}.sha256" || status=1
     fi
 
     if [[ -n "${stage}" ]]; then
@@ -206,8 +218,9 @@ backup_require_postgresql
 backup_require_encryption "$(env_get BACKUP_AGE_RECIPIENT)"
 
 stage=""
-verify_dir=""
-plain_dir=""
+encrypt_dir=""
+archive=""
+archive_ready="no"
 trap 'backup_on_exit' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
@@ -241,42 +254,38 @@ backup_write_manifest \
     "${authentik_tag}" \
     "${postgres_image}"
 
+if ! backup_require_private_tree "${stage}"; then
+    fail "Backup stage is not mode 700 with mode 600 files. No archive was kept."
+fi
+
 restore_validate_stage "${stage}"
 
 ensure_directory "${BACKUP_LOCAL_DIR}"
 chmod 700 "${BACKUP_LOCAL_DIR}"
 
-plain_dir="$(mktemp -d)"
-plain="${plain_dir}/plain.tar.gz"
-backup_create_private_file "${plain}"
-tar -C "${stage}" -czf "${plain}" .
-
-verify_dir="$(mktemp -d)"
-tar -C "${verify_dir}" -xzf "${plain}"
-restore_validate_stage "${verify_dir}"
-
-if ! backup_destroy_tree "${verify_dir}"; then
-    verify_dir=""
-    fail "Could not remove the plaintext verification directory. No encrypted archive was kept."
-fi
-
-verify_dir=""
-
+encrypt_dir="$(mktemp -d)"
 archive="${BACKUP_LOCAL_DIR}/authentik-netcup-${stamp}.tar.gz.age"
+store_status=0
 
-if ! backup_encrypt_file "${plain}" "${archive}" "$(env_get BACKUP_AGE_RECIPIENT)"; then
-    backup_destroy_file "${archive}" || true
+backup_store_encrypted_stage \
+    "${stage}" \
+    "${archive}" \
+    "$(env_get BACKUP_AGE_RECIPIENT)" \
+    "${encrypt_dir}" \
+    || store_status=$?
+
+if [[ "${store_status}" -eq 1 ]]; then
     fail "Encryption failed. No archive was kept. This run is not a safe external backup."
 fi
 
-backup_write_checksum "${archive}"
-backup_require_sidecar "${archive}" "archive"
-
-if ! backup_discard_plaintext "${plain_dir}"; then
+if [[ "${store_status}" -ne 0 ]]; then
+    archive_ready="yes"
+    warn "Encrypted archive ${archive} passed its checksum, but temporary ciphertext could not be removed: ${encrypt_dir}."
     exit 1
 fi
 
-plain_dir=""
+archive_ready="yes"
+encrypt_dir=""
 
 external="$(env_get BACKUP_EXTERNAL_DIR)"
 

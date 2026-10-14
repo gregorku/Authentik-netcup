@@ -696,15 +696,309 @@ test_backup_encryption()
     [[ "$(cat "${work}/out/payload")" == "plaintext-marker" ]] \
         || fail "Decrypted archive does not contain the plaintext payload."
 
+    #
+    # The name is gone. This does not show that SSD or copy-on-write
+    # blocks were erased.
+    #
+
     backup_destroy_file "${plain}" \
         || fail "Plaintext archive could not be removed."
 
     [[ ! -e "${plain}" ]] \
-        || fail "Plaintext archive remained after shred."
+        || fail "Plaintext archive name remained after removal."
 
     rm -rf "${work}"
 
     ok "age encryption, checksum and decrypt were checked with a real age binary."
+}
+
+###############################################################################
+# Modes of the plaintext that exists before encryption
+#
+# install, tar and stat run for real under umask 022. pg_dump does not
+# run: the dump path is a redirect into a file that was created mode
+# 600, which is the same open the shell uses for the docker redirect.
+# A tar created without that pre-created file is checked only to show
+# the mode tar would otherwise choose. shred is not asked to erase media.
+#
+###############################################################################
+
+test_backup_plaintext_modes()
+{
+    print_section "Backup plaintext modes"
+
+    local work
+    local status=0
+
+    work="$(mktemp -d)"
+
+    (
+        umask 022
+
+        local stage
+        local live
+        local plain_dir
+        local plain
+        local verify
+        local loose
+        local mode
+
+        stage="$(mktemp -d "${work}/stage.XXXXXX")"
+        mkdir -m 755 "${work}/live"
+        mkdir -m 755 "${work}/live/nested"
+        printf 'media\n' > "${work}/live/nested/icon.txt"
+
+        mode="$(stat -c '%a' "${work}/live/nested/icon.txt")"
+        [[ "${mode}" == "644" ]] \
+            || fail "The mode fixture was not 644: ${mode}"
+
+        backup_create_private_dir "${stage}/postgresql"
+        backup_create_private_file "${stage}/postgresql/authentik.dump"
+        printf 'dump\n' > "${stage}/postgresql/authentik.dump"
+
+        backup_copy_private_tree "${work}/live" "${stage}/authentik/data"
+        printf 'AUTHENTIK_SECRET_KEY=mode-check\n' > "${work}/runtime.env"
+        install -m 600 "${work}/runtime.env" "${stage}/stack.env"
+
+        backup_write_manifest \
+            "${stage}" \
+            "2026-01-01T00:00:00Z" \
+            "image" \
+            "tag" \
+            "postgres"
+
+        backup_require_private_tree "${stage}" \
+            || fail "The stage tree was not mode 700/600 under umask 022."
+
+        for relative in \
+            postgresql/authentik.dump \
+            authentik/data/nested/icon.txt \
+            stack.env \
+            manifest.txt
+        do
+            mode="$(stat -c '%a' "${stage}/${relative}")"
+            [[ "${mode}" == "600" ]] \
+                || fail "${relative} was created mode ${mode}, expected 600."
+        done
+
+        mode="$(stat -c '%a' "${stage}/authentik")"
+        [[ "${mode}" == "700" ]] \
+            || fail "An intermediate stage directory was mode ${mode}, expected 700."
+
+        loose="${work}/loose.tar.gz"
+        tar -C "${stage}" -czf "${loose}" .
+        mode="$(stat -c '%a' "${loose}")"
+        [[ "${mode}" == "644" ]] \
+            || fail "A tar created without a mode 600 file was ${mode}, expected 644 under umask 022."
+
+        plain_dir="$(mktemp -d "${work}/plain.XXXXXX")"
+        plain="${plain_dir}/plain.tar.gz"
+        backup_create_private_file "${plain}"
+        tar -C "${stage}" -czf "${plain}" .
+
+        backup_require_private_tree "${plain_dir}" \
+            || fail "The plaintext archive directory was not mode 700/600."
+
+        mode="$(stat -c '%a' "${plain}")"
+        [[ "${mode}" == "600" ]] \
+            || fail "The pre-created plaintext archive was mode ${mode}, expected 600."
+
+        verify="$(mktemp -d "${work}/verify.XXXXXX")"
+        tar -C "${verify}" -xzf "${plain}"
+
+        backup_require_private_tree "${verify}" \
+            || fail "The unpacked plaintext was not mode 700/600."
+
+        mode="$(stat -c '%a' "${verify}/stack.env")"
+        [[ "${mode}" == "600" ]] \
+            || fail "Unpacked stack.env was mode ${mode}, expected 600."
+
+        mode="$(stat -c '%a' "${verify}/postgresql/authentik.dump")"
+        [[ "${mode}" == "600" ]] \
+            || fail "Unpacked dump was mode ${mode}, expected 600."
+
+    ) || status=$?
+
+    rm -rf "${work}"
+
+    [[ "${status}" -eq 0 ]] \
+        || fail "Plaintext mode check failed with status ${status}."
+
+    ok "Dump, stack.env, manifest and the plaintext tar are mode 600 at creation."
+}
+
+###############################################################################
+# Stream the stage into age without a plaintext tar file
+#
+# tar, age and sha256sum run for real. backup.sh is not executed and
+# pg_dump does not run. The throwaway identity is used only after
+# backup_store_encrypted_stage returns, to read the ciphertext back.
+# The store function itself receives no identity.
+#
+# The tar failure is a real open error on a mode 000 file. That needs
+# a non-root user. The age failure is a real age checksum rejection of
+# a recipient string that backup_recipient_is_public still accepts.
+#
+###############################################################################
+
+test_backup_stream_encrypt()
+{
+    print_section "Backup stream encryption"
+
+    local work
+    local identity
+    local recipient
+    local bad_recipient
+    local stage
+    local tar_stage
+    local pending
+    local final
+    local status
+    local leftover
+    local restored
+    local mode
+
+    [[ "$(id -u)" -ne 0 ]] \
+        || fail "The tar failure case needs a non-root user so mode 000 is unreadable."
+
+    if grep -q 'plain\.tar\.gz' "${SCRIPT_DIR}/backup.sh"; then
+        fail "backup.sh still names a plaintext tar archive."
+    fi
+
+    grep -q -- '-czf -' "${SCRIPT_DIR}/lib/backup/crypto.sh" \
+        || fail "Stage encryption does not stream tar to stdout."
+
+    work="$(mktemp -d)"
+    mkdir -m 700 "${work}/publish"
+
+    identity="${work}/identity"
+    age-keygen -o "${identity}" >"${work}/age-keygen.out" 2>"${work}/age-keygen.err"
+    chmod 600 "${identity}"
+
+    recipient="$(
+        awk -F': ' '/public key:/{ print $2; exit }' "${identity}"
+    )"
+
+    backup_recipient_is_public "${recipient}" \
+        || fail "age-keygen did not produce a public recipient."
+
+    stage="$(mktemp -d "${work}/stage.XXXXXX")"
+    backup_create_private_file "${stage}/payload"
+    printf 'stream-marker\n' > "${stage}/payload"
+    pending="$(mktemp -d "${work}/pending.XXXXXX")"
+    final="${work}/publish/sample.tar.gz.age"
+
+    status=0
+    backup_store_encrypted_stage \
+        "${stage}" \
+        "${final}" \
+        "${recipient}" \
+        "${pending}" \
+        || status=$?
+
+    [[ "${status}" -eq 0 ]] \
+        || fail "Streaming encryption failed with status ${status}."
+
+    [[ -f "${final}" ]] \
+        || fail "The checksummed archive was not published."
+
+    mode="$(stat -c '%a' "${final}")"
+    [[ "${mode}" == "600" ]] \
+        || fail "Published archive mode is ${mode}, expected 600."
+
+    backup_verify_sidecar "${final}" \
+        || fail "Published archive checksum does not match."
+
+    [[ ! -d "${pending}" ]] \
+        || fail "Temporary ciphertext directory remained after publish."
+
+    leftover="$(
+        find "${work}" \( -name 'plain.tar.gz' -o -name '*.tar.gz' \) -print
+    )"
+    [[ -z "${leftover}" ]] \
+        || fail "A plaintext tar was created: ${leftover}"
+
+    restored="${work}/decrypted.bin"
+    backup_decrypt_file "${final}" "${restored}" "${identity}" \
+        || fail "The streamed archive could not be decrypted."
+
+    mkdir -m 700 "${work}/out"
+    tar -C "${work}/out" -xzf "${restored}"
+    [[ "$(cat "${work}/out/payload")" == "stream-marker" ]] \
+        || fail "Decrypted stream does not contain the stage payload."
+
+    tar_stage="$(mktemp -d "${work}/tarfail.XXXXXX")"
+    stage="${tar_stage}"
+    backup_create_private_file "${stage}/secret"
+    chmod 000 "${stage}/secret"
+    pending="$(mktemp -d "${work}/pending-tar.XXXXXX")"
+    final="${work}/publish/tar-fail.tar.gz.age"
+    status=0
+
+    backup_store_encrypted_stage \
+        "${stage}" \
+        "${final}" \
+        "${recipient}" \
+        "${pending}" \
+        >"${work}/tar.out" 2>"${work}/tar.err" \
+        || status=$?
+
+    [[ "${status}" -eq 1 ]] \
+        || fail "A tar failure was stored with status ${status}."
+
+    [[ ! -e "${final}" && ! -e "${final}.sha256" ]] \
+        || fail "A tar failure left a published archive."
+
+    [[ ! -e "${pending}/stream.tar.gz.age" ]] \
+        || fail "A tar failure left temporary ciphertext."
+
+    [[ "$(cat "${work}/tar.err")" == *'tar:'* ]] \
+        || fail "tar did not report the unreadable file."
+
+    bad_recipient="age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    backup_recipient_is_public "${bad_recipient}" \
+        || fail "The age failure fixture was rejected before age ran."
+
+    stage="$(mktemp -d "${work}/agefail.XXXXXX")"
+    backup_create_private_file "${stage}/payload"
+    printf 'x\n' > "${stage}/payload"
+    pending="$(mktemp -d "${work}/pending-age.XXXXXX")"
+    final="${work}/publish/age-fail.tar.gz.age"
+    status=0
+
+    backup_store_encrypted_stage \
+        "${stage}" \
+        "${final}" \
+        "${bad_recipient}" \
+        "${pending}" \
+        >"${work}/age.out" 2>"${work}/age.err" \
+        || status=$?
+
+    [[ "${status}" -eq 1 ]] \
+        || fail "An age failure was stored with status ${status}."
+
+    [[ ! -e "${final}" && ! -e "${final}.sha256" ]] \
+        || fail "An age failure left a published archive."
+
+    [[ ! -e "${pending}/stream.tar.gz.age" ]] \
+        || fail "An age failure left temporary ciphertext."
+
+    [[ "$(cat "${work}/age.err")" == *'age:'* ]] \
+        || fail "age did not report the recipient failure."
+
+    [[ "$(cat "${work}/age.err")" != *'AGE-SECRET-KEY'* ]] \
+        || fail "An age error included identity material."
+
+    leftover="$(
+        find "${work}" \( -name 'plain.tar.gz' -o -name '*.tar.gz' \) -print
+    )"
+    [[ -z "${leftover}" ]] \
+        || fail "A plaintext tar was created: ${leftover}"
+
+    chmod u+r "${tar_stage}/secret" 2>/dev/null || true
+    rm -rf "${work}"
+
+    ok "Streamed age encryption publishes only after the pipeline and checksum succeed."
 }
 
 ###############################################################################

@@ -13,6 +13,11 @@ init_directories()
 {
     log_step "Project directories"
 
+    # DATA_DIR stays owned by root and is not chmod 700. PostgreSQL
+    # uid 70 and Authentik uid 1000 have to traverse it to reach the
+    # directories init_postgresql and init_authentik chown for them.
+    # Mode 700 on this parent would deny that traversal. Only the
+    # backup directory is mode 700, because root reads and writes it.
     ensure_directory "${DATA_DIR}"
     ensure_directory "${BACKUP_LOCAL_DIR}"
 

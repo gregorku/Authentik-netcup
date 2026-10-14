@@ -123,6 +123,8 @@ run_static_tests()
     test_backup_archive
     test_backup_external_copy
     test_backup_encryption
+    test_backup_plaintext_modes
+    test_backup_stream_encrypt
     test_backup_destination
     test_backup_cleanup_failure
     test_backup_quiesce

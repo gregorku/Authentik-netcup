@@ -313,10 +313,8 @@ restore_capture_rollback()
     local root="$2"
     local env_file="$3"
 
-    mkdir -p \
-        "${rollback}/authentik" \
-        "${rollback}/postgresql" \
-        || return 1
+    backup_create_private_dir "${rollback}/authentik" || return 1
+    backup_create_private_dir "${rollback}/postgresql" || return 1
 
     restore_replace_tree "${root}/data" "${rollback}/authentik/data" || return 1
     restore_replace_tree "${root}/templates" "${rollback}/authentik/templates" || return 1
