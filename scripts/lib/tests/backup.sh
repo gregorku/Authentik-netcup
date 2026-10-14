@@ -321,6 +321,15 @@ test_restore_rolls_back()
     [[ "${RESTORE_ERROR}" == "rolled-back" ]] \
         || fail "Database failure did not roll back (${RESTORE_ERROR})."
 
+    [[ "${RESTORE_KEEP_ROLLBACK}" == "yes" ]] \
+        || fail "Database failure cleared the rollback keep flag."
+
+    [[ "${RESTORE_MUTATION_STARTED}" == "yes" ]] \
+        || fail "Database failure lost the mutation marker."
+
+    [[ -d "${rollback}" ]] \
+        || fail "Database failure removed the rollback snapshot."
+
     restore_should_keep_rollback \
         || fail "A rolled-back restore would discard its snapshot."
 
@@ -553,4 +562,346 @@ test_backup_quiesce()
     rm -rf "${work}"
 
     ok "Backup stops and starts only the containers it found running."
+}
+
+###############################################################################
+# age encryption of a real temporary archive
+#
+# age-keygen, age -r and age -d run for real. Docker and PostgreSQL
+# do not. The private identity is not printed.
+#
+###############################################################################
+
+test_backup_encryption()
+{
+    print_section "Backup encryption"
+
+    local work
+    local empty_bin
+    local rejected
+    local identity
+    local recipient
+    local plain
+    local encrypted
+    local restored
+    local mode
+
+    work="$(mktemp -d)"
+    empty_bin="${work}/empty-bin"
+    mkdir -m 700 "${empty_bin}"
+
+    rejected="$(backup_require_encryption "" 2>&1)" || true
+
+    [[ "${rejected}" == *"BACKUP_AGE_RECIPIENT is empty"* ]] \
+        || fail "An empty age recipient was accepted: ${rejected}"
+
+    [[ "${rejected}" == *"not a safe external backup"* ]] \
+        || fail "An empty age recipient was described as a safe external backup: ${rejected}"
+
+    rejected="$(backup_require_encryption "AGE-SECRET-KEY-1not-a-real-identity" 2>&1)" || true
+
+    [[ "${rejected}" == *"not a public age recipient"* ]] \
+        || fail "A private age identity was accepted as a recipient: ${rejected}"
+
+    [[ "${rejected}" != *"AGE-SECRET-KEY"* ]] \
+        || fail "A rejected identity was written to the error text."
+
+    (
+        PATH="${empty_bin}"
+        hash -r
+        backup_require_encryption "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    ) >"${work}/missing-age.out" 2>"${work}/missing-age.err" || true
+
+    rejected="$(cat "${work}/missing-age.err")"
+
+    [[ "${rejected}" == *"age is not installed"* ]] \
+        || fail "A missing age command was accepted: ${rejected}"
+
+    [[ "${rejected}" == *"not a safe external backup"* ]] \
+        || fail "A missing age command was described as a safe external backup: ${rejected}"
+
+    identity="${work}/identity"
+    age-keygen -o "${identity}" >"${work}/age-keygen.out" 2>"${work}/age-keygen.err"
+    chmod 600 "${identity}"
+
+    recipient="$(
+        awk -F': ' '/public key:/{ print $2; exit }' "${identity}"
+    )"
+
+    backup_recipient_is_public "${recipient}" \
+        || fail "age-keygen did not produce a public recipient."
+
+    plain="${work}/plain.tar.gz"
+    encrypted="${work}/sample.tar.gz.age"
+
+    (
+        umask 022
+        backup_create_private_file "${work}/umask-file"
+        backup_create_private_dir "${work}/umask-dir"
+    )
+
+    [[ "$(stat -c '%a' "${work}/umask-file")" == "600" ]] \
+        || fail "A private file was created with mode $(stat -c '%a' "${work}/umask-file") under umask 022."
+
+    [[ "$(stat -c '%a' "${work}/umask-dir")" == "700" ]] \
+        || fail "A private directory was created with mode $(stat -c '%a' "${work}/umask-dir") under umask 022."
+
+    printf 'plaintext-marker\n' > "${work}/payload"
+    tar -C "${work}" -czf "${plain}" payload
+
+    (
+        umask 022
+        backup_encrypt_file "${plain}" "${encrypted}" "${recipient}"
+    ) \
+        || fail "age did not encrypt the archive."
+
+    mode="$(stat -c '%a' "${encrypted}")"
+
+    [[ "${mode}" == "600" ]] \
+        || fail "Encrypted archive mode is ${mode}, expected 600."
+
+    backup_write_checksum "${encrypted}"
+    backup_require_sidecar "${encrypted}" "archive"
+
+    printf 'x' >> "${encrypted}"
+
+    rejected="$(backup_require_sidecar "${encrypted}" archive 2>&1)" || true
+
+    [[ "${rejected}" == *"does not match"* ]] \
+        || fail "A damaged encrypted archive was accepted: ${rejected}"
+
+    backup_write_checksum "${encrypted}"
+
+    restored="${work}/restored"
+    backup_create_private_file "${restored}"
+
+    if backup_decrypt_file "${encrypted}" "${restored}" "${identity}"; then
+        fail "A damaged encrypted archive was decrypted."
+    fi
+
+    [[ ! -e "${restored}" ]] \
+        || fail "A failed decrypt left a plaintext file."
+
+    rm -f "${encrypted}" "${encrypted}.sha256"
+    backup_encrypt_file "${plain}" "${encrypted}" "${recipient}" \
+        || fail "age did not encrypt the archive on the second attempt."
+
+    backup_write_checksum "${encrypted}"
+    backup_decrypt_file "${encrypted}" "${restored}" "${identity}" \
+        || fail "age did not decrypt the archive with the identity file."
+
+    mkdir -m 700 "${work}/out"
+    tar -C "${work}/out" -xzf "${restored}"
+
+    [[ "$(cat "${work}/out/payload")" == "plaintext-marker" ]] \
+        || fail "Decrypted archive does not contain the plaintext payload."
+
+    backup_destroy_file "${plain}" \
+        || fail "Plaintext archive could not be removed."
+
+    [[ ! -e "${plain}" ]] \
+        || fail "Plaintext archive remained after shred."
+
+    rm -rf "${work}"
+
+    ok "age encryption, checksum and decrypt were checked with a real age binary."
+}
+
+###############################################################################
+# Destination device and directory mode
+#
+# Both directories are on this workstation's filesystem. No second
+# disk is mounted. The other-filesystem branch is not executed here.
+#
+###############################################################################
+
+test_backup_destination()
+{
+    print_section "Backup destination"
+
+    local work
+    local local_dir
+    local same
+    local loose
+    local kind
+    local rejected
+
+    work="$(mktemp -d)"
+    local_dir="${work}/local"
+    same="${work}/same"
+    loose="${work}/loose"
+
+    mkdir -m 700 "${local_dir}" "${same}"
+    mkdir -m 755 "${loose}"
+
+    kind="$(backup_classify_destination "${same}" "${local_dir}")"
+
+    [[ "${kind}" == "same-filesystem" ]] \
+        || fail "Two directories on this filesystem were classed as ${kind}."
+
+    rejected="$(backup_publish_encrypted "${work}/missing" "${same}" "${local_dir}" 2>&1)" || true
+
+    [[ "${rejected}" == *"same filesystem"* ]] \
+        || fail "A same-filesystem destination was copied: ${rejected}"
+
+    [[ "${rejected}" == *"not an external backup"* ]] \
+        || fail "A same-filesystem destination was called an external backup: ${rejected}"
+
+    [[ ! -e "${same}/missing" ]] \
+        || fail "A refused destination received a file."
+
+    rejected="$(backup_classify_destination "${loose}" "${local_dir}" 2>&1)" || true
+
+    [[ "${rejected}" == *"mode 700"* ]] \
+        || fail "A mode 755 destination was accepted: ${rejected}"
+
+    if backup_path_is_forbidden "${STACK_DIR}/age.key"; then
+        true
+    else
+        fail "An identity under the stack directory was allowed."
+    fi
+
+    if backup_path_is_forbidden "${work}/identity"; then
+        fail "An identity in a temporary directory was forbidden."
+    fi
+
+    printf 'not-a-key\n' > "${work}/identity"
+    chmod 644 "${work}/identity"
+
+    rejected="$(backup_require_identity "${work}/identity" 2>&1)" || true
+
+    [[ "${rejected}" == *"mode 600 or 400"* ]] \
+        || fail "A mode 644 identity was accepted: ${rejected}"
+
+    chmod 600 "${work}/identity"
+
+    backup_require_identity "${work}/identity"
+
+    rm -rf "${work}"
+
+    ok "Same-filesystem and loose destinations are refused."
+}
+
+###############################################################################
+# Cleanup failure must not look like success
+#
+# backup_destroy_tree is replaced in a subshell. shred is not asked
+# to fail on a real file; the replacement returns 1 immediately.
+#
+###############################################################################
+
+test_backup_cleanup_failure()
+{
+    print_section "Backup cleanup failure"
+
+    local work
+    local rejected
+    local status
+
+    work="$(mktemp -d)"
+    mkdir -m 700 "${work}/plain"
+    printf 'secret\n' > "${work}/plain/payload"
+
+    status=0
+
+    rejected="$(
+        backup_destroy_tree()
+        {
+            return 1
+        }
+
+        backup_discard_plaintext "${work}/plain"
+    )" || status=$?
+
+    [[ "${status}" -ne 0 ]] \
+        || fail "A failed plaintext cleanup was treated as success."
+
+    [[ "${rejected}" == *"not a completed backup"* ]] \
+        || fail "Cleanup failure was reported as a completed backup: ${rejected}"
+
+    [[ -f "${work}/plain/payload" ]] \
+        || fail "The simulated cleanup failure removed the plaintext file."
+
+    rm -rf "${work}"
+
+    ok "A failed plaintext cleanup is not a completed backup."
+}
+
+###############################################################################
+# SIGTERM during the destructive phase keeps the snapshot
+#
+# A subshell installs the same EXIT handler as restore.sh and then
+# receives a real SIGTERM. pg_restore is a stub that returns 0. No
+# database is contacted.
+#
+###############################################################################
+
+test_restore_signal()
+{
+    print_section "Restore signal"
+
+    local work
+    local live
+    local rollback
+    local env_file
+    local status
+
+    work="$(mktemp -d)"
+    live="${work}/live"
+    rollback="${work}/rollback"
+    env_file="${work}/runtime.env"
+
+    mkdir -m 700 -p "${live}/data" "${live}/templates" "${live}/certs"
+    mkdir -m 700 -p "${rollback}/authentik/data" "${rollback}/authentik/templates" "${rollback}/authentik/certs" "${rollback}/postgresql"
+
+    printf 'original\n' > "${live}/data/icon.txt"
+    printf 'original\n' > "${rollback}/authentik/data/icon.txt"
+    printf 'template\n' > "${live}/templates/custom.html"
+    printf 'template\n' > "${rollback}/authentik/templates/custom.html"
+    printf 'cert\n' > "${live}/certs/cert.pem"
+    printf 'cert\n' > "${rollback}/authentik/certs/cert.pem"
+    printf 'AUTHENTIK_SECRET_KEY=%s\n' "$(test_secret_value a)" > "${env_file}"
+    install -m 600 "${env_file}" "${rollback}/runtime.env"
+    printf '600\n' > "${rollback}/env.mode"
+    printf 'snapshot\n' > "${rollback}/postgresql/authentik.dump"
+
+    status=0
+
+    (
+        stage=""
+        secret_tmp=""
+        RESTORE_VERIFIED=no
+        RESTORE_ROLLBACK_DONE=no
+        RESTORE_ROLLBACK_ATTEMPTED=no
+        RESTORE_KEEP_ROLLBACK=yes
+        RESTORE_MUTATION_STARTED=yes
+        RESTORE_LIVE_ROOT="${live}"
+        RESTORE_ENV_FILE="${env_file}"
+        RESTORE_ROLLBACK_DIR="${rollback}"
+
+        restore_load_database()
+        {
+            return 0
+        }
+
+        printf 'destroyed\n' > "${live}/data/icon.txt"
+
+        trap 'restore_on_exit' EXIT
+        trap 'exit 143' TERM
+        kill -TERM "${BASHPID}"
+        sleep 2
+    ) || status=$?
+
+    [[ "${status}" -ne 0 ]] \
+        || fail "SIGTERM during restore was reported as success."
+
+    [[ -d "${rollback}" ]] \
+        || fail "SIGTERM removed the rollback snapshot."
+
+    [[ "$(cat "${live}/data/icon.txt")" == "original" ]] \
+        || fail "SIGTERM left the destructive file change in place."
+
+    rm -rf "${work}"
+
+    ok "SIGTERM during the destructive phase kept the snapshot and restored the file."
 }

@@ -54,6 +54,12 @@
 
 set -Eeuo pipefail
 
+#
+# Owner-only files from the first redirect, before any secret exists.
+#
+
+umask 077
+
 ###############################################################################
 # Directories
 ###############################################################################
@@ -76,7 +82,9 @@ source "${SCRIPT_DIR}/lib/filesystem.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
 source "${SCRIPT_DIR}/lib/checks/load.sh"
 source "${SCRIPT_DIR}/lib/env/load.sh"
+source "${SCRIPT_DIR}/lib/backup/private.sh"
 source "${SCRIPT_DIR}/lib/backup/archive.sh"
+source "${SCRIPT_DIR}/lib/backup/crypto.sh"
 source "${SCRIPT_DIR}/lib/backup/postgres.sh"
 source "${SCRIPT_DIR}/lib/backup/restore-plan.sh"
 source "${SCRIPT_DIR}/lib/backup/apply.sh"
@@ -92,15 +100,21 @@ Authentik-netcup Project
 
 Usage:
 
-    ./scripts/restore.sh --archive PATH --confirm ${STACK_NAME}
-    ./scripts/restore.sh --archive PATH --confirm ${STACK_NAME} --replace-data
+    ./scripts/restore.sh --archive PATH --identity PATH --confirm ${STACK_NAME}
+    ./scripts/restore.sh --archive PATH --identity PATH --confirm ${STACK_NAME} --replace-data
     ./scripts/restore.sh --help
 
 Options:
 
     --archive PATH
-        Backup tar.gz produced by backup.sh. The sidecar PATH.sha256
-        has to sit next to it.
+        Encrypted backup produced by backup.sh (PATH ends in .tar.gz.age).
+        The sidecar PATH.sha256 has to sit next to it. The checksum is
+        of the encrypted file.
+
+    --identity PATH
+        age identity used only to decrypt. It must be mode 600 or 400
+        and must not live in Git, the stack, DATA_DIR, or the local
+        backup directory. It is not copied into the archive.
 
     --confirm ${STACK_NAME}
         Required. Any other value is refused.
@@ -134,6 +148,7 @@ EOF
 ###############################################################################
 
 archive=""
+identity=""
 confirm=""
 replace_data="no"
 allow_mismatch="no"
@@ -145,6 +160,12 @@ do
         --archive)
             [[ $# -ge 2 ]] || fail "--archive requires a path."
             archive="$2"
+            shift 2
+            ;;
+
+        --identity)
+            [[ $# -ge 2 ]] || fail "--identity requires a path."
+            identity="$2"
             shift 2
             ;;
 
@@ -182,26 +203,6 @@ done
 restore_confirmation_matches "${confirm}" \
     || fail "Refusing restore. --confirm must be exactly '${STACK_NAME}'."
 
-###############################################################################
-# Remove the extract. Keep a rollback snapshot when the restore failed
-# after live data was changed.
-###############################################################################
-
-restore_on_exit()
-{
-    local status=$?
-
-    if [[ -n "${stage}" && -d "${stage}" ]]; then
-        rm -rf "${stage}"
-    fi
-
-    if [[ "${RESTORE_KEEP_ROLLBACK}" != "yes" && -n "${rollback}" ]]; then
-        rm -rf "${rollback}"
-    fi
-
-    exit "${status}"
-}
-
 print_header "Authentik-netcup restore"
 
 check_environment
@@ -209,12 +210,33 @@ check_environment
 [[ -f "${ENV_FILE}" ]] \
     || fail ".env not found. The restore target is not initialized."
 
-stage="$(mktemp -d)"
-rollback=""
-RESTORE_KEEP_ROLLBACK=no
-trap 'restore_on_exit' EXIT
+backup_require_identity "${identity}"
 
-backup_verify_archive "${archive}" "${stage}"
+stage=""
+secret_tmp=""
+rollback=""
+trap 'restore_on_exit' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
+
+#
+# Checksum the encrypted archive before any plaintext exists.
+#
+
+backup_require_sidecar "${archive}" "archive"
+
+secret_tmp="$(mktemp -d)"
+plain="${secret_tmp}/plain.tar.gz"
+
+if ! backup_decrypt_file "${archive}" "${plain}" "${identity}"; then
+    fail "Could not decrypt the archive. Persistent data was not changed."
+fi
+
+stage="$(mktemp -d)"
+tar -C "${stage}" -xzf "${plain}"
+backup_destroy_file "${plain}" || fail "Could not remove the decrypted archive. Persistent data was not changed."
+
 restore_validate_stage "${stage}"
 
 manifest="${stage}/manifest.txt"
@@ -247,15 +269,12 @@ ensure_directory "${BACKUP_LOCAL_DIR}"
 chmod 700 "${BACKUP_LOCAL_DIR}"
 
 rollback="$(mktemp -d "${BACKUP_LOCAL_DIR}/rollback.XXXXXX")"
-chmod 700 "${rollback}"
+RESTORE_ROLLBACK_DIR="${rollback}"
+RESTORE_KEEP_ROLLBACK=yes
 
 info "Rollback snapshot will be prepared before any live data is replaced."
 
 if ! restore_perform "${stage}" "${AUTHENTIK_DIR}" "${ENV_FILE}" "${rollback}"; then
-
-    if restore_should_keep_rollback; then
-        RESTORE_KEEP_ROLLBACK=yes
-    fi
 
     if [[ "${RESTORE_ERROR}" == "rolled-back" ]]; then
         fail "Restore was not completed. Files, the database and AUTHENTIK_SECRET_KEY were returned to the previous state. Snapshot kept at ${rollback}. Do not start Authentik on this result."
@@ -265,10 +284,14 @@ if ! restore_perform "${stage}" "${AUTHENTIK_DIR}" "${ENV_FILE}" "${rollback}"; 
         fail "Restore was not completed and automatic rollback failed. Do not start Authentik. The snapshot of the previous files, .env and database dump is in ${rollback}. Put those files and AUTHENTIK_SECRET_KEY back before loading that dump."
     fi
 
-    fail "Restore was not completed. Live data was not changed."
+    fail "Restore was not completed. Live data was not changed. Snapshot kept at ${rollback}."
 fi
 
-rm -rf "${rollback}"
+if ! backup_destroy_tree "${rollback}"; then
+    fail "Restore was verified, but the rollback snapshot could not be removed: ${rollback}."
+fi
+
+RESTORE_ROLLBACK_DIR=""
 rollback=""
 
 info "AUTHENTIK_SECRET_KEY was restored. Other runtime .env settings were left in place."

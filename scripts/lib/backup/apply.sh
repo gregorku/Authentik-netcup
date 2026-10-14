@@ -22,6 +22,14 @@
 ###############################################################################
 
 RESTORE_ERROR=""
+RESTORE_MUTATION_STARTED=no
+RESTORE_VERIFIED=no
+RESTORE_ROLLBACK_DONE=no
+RESTORE_ROLLBACK_ATTEMPTED=no
+RESTORE_KEEP_ROLLBACK=no
+RESTORE_LIVE_ROOT=""
+RESTORE_ENV_FILE=""
+RESTORE_ROLLBACK_DIR=""
 
 ###############################################################################
 # Dump the live database into the rollback directory
@@ -45,7 +53,8 @@ restore_snapshot_database()
 
     [[ -n "${db_user}" && -n "${db_name}" ]] || return 1
 
-    mkdir -p "$(dirname "${output}")" || return 1
+    backup_create_private_dir "$(dirname "${output}")" || return 1
+    backup_create_private_file "${output}" || return 1
 
     if ! docker exec -u postgres "${POSTGRESQL_CONTAINER}" \
         pg_dump \
@@ -199,8 +208,7 @@ restore_replace_tree()
     local dest="$2"
 
     rm -rf "${dest}" || return 1
-    mkdir -p "${dest}" || return 1
-    cp -a "${source}/." "${dest}/" || return 1
+    backup_copy_private_tree "${source}" "${dest}"
 }
 
 ###############################################################################
@@ -261,8 +269,8 @@ restore_install_secret_key()
     backup="${env_file}.bak-$(date +%Y%m%d-%H%M%S)"
     tmp="${env_file}.tmp"
 
-    cp "${env_file}" "${backup}" || return 1
-    chmod 600 "${backup}" || return 1
+    install -m 600 "${env_file}" "${backup}" || return 1
+    backup_create_private_file "${tmp}" || return 1
 
     if ! AUTHENTIK_RESTORE_KEY="${key}" awk '
         BEGIN { found = 0 }
@@ -314,15 +322,14 @@ restore_capture_rollback()
     restore_replace_tree "${root}/templates" "${rollback}/authentik/templates" || return 1
     restore_replace_tree "${root}/certs" "${rollback}/authentik/certs" || return 1
 
-    cp "${env_file}" "${rollback}/runtime.env" || return 1
-    chmod 600 "${rollback}/runtime.env" || return 1
+    install -m 600 "${env_file}" "${rollback}/runtime.env" || return 1
 
+    backup_create_private_file "${rollback}/env.mode" || return 1
     stat -c '%a' "${env_file}" > "${rollback}/env.mode" || return 1
 
     restore_snapshot_database "${rollback}/postgresql/authentik.dump" || return 1
 
     [[ -s "${rollback}/postgresql/authentik.dump" ]] || return 1
-    chmod 600 "${rollback}/postgresql/authentik.dump" || return 1
     [[ -s "${rollback}/env.mode" ]] || return 1
 
     restore_trees_match "${root}" "${rollback}/authentik" || return 1
@@ -363,6 +370,7 @@ restore_apply_rollback()
     mode="$(tr -d '[:space:]' < "${rollback}/env.mode")" || return 1
     tmp="${env_file}.tmp"
 
+    backup_create_private_file "${tmp}" || return 1
     cp "${rollback}/runtime.env" "${tmp}" || return 1
     chmod "${mode}" "${tmp}" || {
         rm -f "${tmp}"
@@ -442,7 +450,84 @@ restore_verify_applied()
 
 restore_should_keep_rollback()
 {
-    [[ "${RESTORE_ERROR}" == "rolled-back" || "${RESTORE_ERROR}" == "rollback-failed" ]]
+    [[ "${RESTORE_VERIFIED}" != "yes" ]]
+}
+
+###############################################################################
+# Roll live data back once
+#
+# The snapshot is not removed. A second call does not try again.
+#
+###############################################################################
+
+restore_attempt_rollback()
+{
+    if [[ "${RESTORE_ROLLBACK_ATTEMPTED}" == "yes" ]]; then
+        return 0
+    fi
+
+    RESTORE_ROLLBACK_ATTEMPTED=yes
+
+    if [[ -z "${RESTORE_ROLLBACK_DIR}" || -z "${RESTORE_LIVE_ROOT}" || -z "${RESTORE_ENV_FILE}" ]]; then
+        RESTORE_ERROR="rollback-failed"
+        return 1
+    fi
+
+    if restore_apply_rollback "${RESTORE_ROLLBACK_DIR}" "${RESTORE_LIVE_ROOT}" "${RESTORE_ENV_FILE}"; then
+        RESTORE_ROLLBACK_DONE=yes
+        RESTORE_ERROR="rolled-back"
+        return 0
+    fi
+
+    RESTORE_ERROR="rollback-failed"
+    return 1
+}
+
+###############################################################################
+# EXIT handler for restore.sh
+#
+# Plaintext extract is removed. The rollback snapshot is removed only
+# after restore_mark_verified. A catchable signal gets one rollback
+# attempt when live data may already have changed.
+#
+###############################################################################
+
+restore_on_exit()
+{
+    local status=$?
+
+    trap - EXIT INT TERM HUP
+
+    if [[ -n "${stage:-}" ]]; then
+        backup_destroy_tree "${stage}" || status=1
+    fi
+
+    if [[ -n "${secret_tmp:-}" ]]; then
+        backup_destroy_tree "${secret_tmp}" || status=1
+    fi
+
+    if [[ "${RESTORE_VERIFIED}" != "yes" && "${RESTORE_MUTATION_STARTED}" == "yes" ]]; then
+        if ! restore_attempt_rollback; then
+            status=1
+        fi
+    fi
+
+    if [[ "${RESTORE_VERIFIED}" == "yes" && -n "${RESTORE_ROLLBACK_DIR}" ]]; then
+        if ! backup_destroy_tree "${RESTORE_ROLLBACK_DIR}"; then
+            status=1
+        fi
+    fi
+
+    exit "${status}"
+}
+
+###############################################################################
+# Mark a restore that passed file, key and database checks
+###############################################################################
+
+restore_mark_verified()
+{
+    RESTORE_VERIFIED=yes
 }
 
 ###############################################################################
@@ -468,6 +553,11 @@ restore_perform()
     local rollback="$4"
 
     RESTORE_ERROR=""
+    RESTORE_VERIFIED=no
+    RESTORE_MUTATION_STARTED=no
+    RESTORE_ROLLBACK_DONE=no
+    RESTORE_ROLLBACK_ATTEMPTED=no
+    RESTORE_KEEP_ROLLBACK=no
 
     restore_validate_stage "${stage}"
 
@@ -478,33 +568,35 @@ restore_perform()
         fail "Runtime .env has no AUTHENTIK_SECRET_KEY line. Live data was not changed."
     fi
 
+    RESTORE_LIVE_ROOT="${root}"
+    RESTORE_ENV_FILE="${env_file}"
+    RESTORE_ROLLBACK_DIR="${rollback}"
+    RESTORE_KEEP_ROLLBACK=yes
+
     if ! restore_capture_rollback "${rollback}" "${root}" "${env_file}"; then
         RESTORE_ERROR="snapshot-failed"
-        fail "Could not prepare a rollback snapshot. Live data was not changed."
+        fail "Could not prepare a rollback snapshot. Live data was not changed. Snapshot kept at ${rollback}."
     fi
 
+    #
+    # From here a signal must not delete the snapshot. Live data is
+    # about to change. SIGKILL cannot be caught; the snapshot stays
+    # because this flag is already set and the EXIT trap is not run.
+    #
+
+    RESTORE_MUTATION_STARTED=yes
+
     if ! restore_apply_stage "${stage}" "${root}" "${env_file}"; then
-
-        if restore_apply_rollback "${rollback}" "${root}" "${env_file}"; then
-            RESTORE_ERROR="rolled-back"
-            return 1
-        fi
-
-        RESTORE_ERROR="rollback-failed"
+        restore_attempt_rollback
         return 1
     fi
 
     if ! restore_verify_applied "${stage}" "${root}" "${env_file}"; then
-
-        if restore_apply_rollback "${rollback}" "${root}" "${env_file}"; then
-            RESTORE_ERROR="rolled-back"
-            return 1
-        fi
-
-        RESTORE_ERROR="rollback-failed"
+        restore_attempt_rollback
         return 1
     fi
 
+    RESTORE_VERIFIED=yes
     RESTORE_ERROR=""
     return 0
 }

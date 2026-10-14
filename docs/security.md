@@ -28,7 +28,7 @@ SMTP host, uživatel, heslo a odesílatel jsou placeholdery, dokud se nedoplní.
 
 ## Zálohy
 
-Archiv obsahuje dump databáze a kopii runtime `.env`. Leží v `/docker-data/backups/authentik-netcup` s módem `600` u souboru a `700` u adresáře. Není v `DEPLOY_ITEMS`. Obnovení bez `--confirm authentik-netcup` a bez `--replace-data` data nepřepisuje.
+Trvalý archiv je `tar.gz.age` zašifrovaný veřejným `BACKUP_AGE_RECIPIENT`. Soukromý klíč age v Gitu, ve stacku ani v archivu není. Soubor má mód `600`, adresář `/docker-data/backups/authentik-netcup` mód `700`. Není v `DEPLOY_ITEMS`. Obnovení chce `--identity` mimo tyto adresáře, `--confirm authentik-netcup` a bez `--replace-data` data nepřepisuje.
 
 ## Dockge
 

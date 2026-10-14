@@ -53,6 +53,39 @@ env_validate_backup_target()
 }
 
 ###############################################################################
+# Public age recipient
+#
+# Arguments:
+#   $1 - BACKUP_AGE_RECIPIENT value
+#
+# Empty is valid and means backup.sh keeps no archive. A private
+# identity is rejected. The value is not written to the log.
+#
+###############################################################################
+
+env_validate_age_recipient()
+{
+    local value="$1"
+
+    [[ -z "${value}" ]] && return 0
+
+    [[ "${value}" != *$'\n'* ]] \
+        || fail "BACKUP_AGE_RECIPIENT must be a single line."
+
+    [[ "${value}" != AGE-SECRET-KEY-* ]] \
+        || fail "BACKUP_AGE_RECIPIENT must be a public recipient, not an age identity."
+
+    if [[ "${value}" == age1* ]]; then
+        [[ "${value}" =~ ^age1[a-z0-9]+$ ]] \
+            || fail "BACKUP_AGE_RECIPIENT is not an age public recipient."
+        return 0
+    fi
+
+    [[ "${value}" =~ ^ssh-(ed25519|rsa)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]]+[^[:space:]]+)?$ ]] \
+        || fail "BACKUP_AGE_RECIPIENT must be an age1 recipient or an ssh public key."
+}
+
+###############################################################################
 # Trusted proxy list
 #
 # Arguments:
@@ -105,6 +138,11 @@ env_validate_array()
 
         if [[ "${variable}" == "BACKUP_EXTERNAL_DIR" ]]; then
             env_validate_backup_target "${value}"
+            continue
+        fi
+
+        if [[ "${variable}" == "BACKUP_AGE_RECIPIENT" ]]; then
+            env_validate_age_recipient "${value}"
             continue
         fi
 

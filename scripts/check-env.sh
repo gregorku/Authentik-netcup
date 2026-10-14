@@ -67,8 +67,9 @@ Usage:
 Description:
 
     Validate ${ENV_FILE}. Placeholders that start with set_ are
-    rejected. An empty BACKUP_EXTERNAL_DIR is valid and means that
-    backup.sh keeps only the local archive.
+    rejected. An empty BACKUP_EXTERNAL_DIR is valid. An empty
+    BACKUP_AGE_RECIPIENT is valid and means backup.sh keeps no
+    archive. The value is a public recipient, not an age identity.
 
     Run this after ./scripts/update-env.sh and before ./scripts/deploy.sh.
 

@@ -98,6 +98,15 @@ ENV_POLICY[LOG_MAX_FILES]="framework"
 ENV_POLICY[BACKUP_EXTERNAL_DIR]="user"
 
 ###############################################################################
+# Public age recipient
+#
+# Empty means backup.sh does not write an archive. This is not an
+# identity. The private key is never stored here.
+###############################################################################
+
+ENV_POLICY[BACKUP_AGE_RECIPIENT]="user"
+
+###############################################################################
 # Return variable policy
 ###############################################################################
 

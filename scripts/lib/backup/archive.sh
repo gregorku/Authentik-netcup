@@ -44,6 +44,8 @@ backup_write_manifest()
     [[ -d "${stage}" ]] \
         || fail "Backup stage is not a directory: ${stage}"
 
+    backup_create_private_file "${manifest}"
+
     {
         printf 'project=%s\n' "${PROJECT_NAME}"
         printf 'created_at=%s\n' "${created_at}"
@@ -172,30 +174,50 @@ backup_pack_stage()
 {
     local stage="$1"
     local archive="$2"
-    local directory
-    local base
 
     [[ -d "${stage}" ]] \
         || fail "Backup stage is not a directory: ${stage}"
 
-    directory="$(dirname "${archive}")"
-    base="$(basename "${archive}")"
+    backup_create_private_file "${archive}"
 
     tar -C "${stage}" -czf "${archive}" .
 
+    backup_write_checksum "${archive}"
+
+    ok "Archive written: ${archive}"
+}
+
+###############################################################################
+# Sidecar checksum for one archive file
+#
+# Arguments:
+#   $1 - Archive path
+#
+# The checksum file is created mode 600. Production backup uses this
+# on the encrypted archive, not on a plaintext tar that is kept.
+#
+###############################################################################
+
+backup_write_checksum()
+{
+    local archive="$1"
+    local directory
+    local base
+
+    directory="$(dirname "${archive}")"
+    base="$(basename "${archive}")"
+
+    backup_create_private_file "${archive}.sha256"
+
     #
     # Store the basename. An absolute path in the sidecar would not
-    # match after the archive is copied to BACKUP_EXTERNAL_DIR.
+    # match after the archive is copied to another directory.
     #
 
     (
         cd "${directory}" || exit 1
         sha256sum "${base}" > "${base}.sha256"
     )
-
-    chmod 600 "${archive}" "${archive}.sha256"
-
-    ok "Archive written: ${archive}"
 }
 
 ###############################################################################
@@ -293,9 +315,8 @@ backup_copy_and_verify()
     [[ -f "${archive}.sha256" ]] \
         || fail "Archive checksum not found: ${archive}.sha256"
 
-    cp "${archive}" "${archive}.sha256" "${dest_dir}/"
-
-    chmod 600 "${dest_dir}/${base}" "${dest_dir}/${base}.sha256"
+    install -m 600 "${archive}" "${dest_dir}/${base}"
+    install -m 600 "${archive}.sha256" "${dest_dir}/${base}.sha256"
 
     backup_require_sidecar "${dest_dir}/${base}" "copy"
 

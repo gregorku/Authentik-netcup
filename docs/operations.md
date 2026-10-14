@@ -33,7 +33,7 @@ Před zápisem vznikne `/docker-data/stacks/authentik-netcup/.env.bak-YYYYMMDD-H
 
 ## check-env.sh
 
-Odmítne chybějící nebo neznámou proměnnou, placeholder `set_*`, heslo PostgreSQL delší než 99 znaků, krátký `AUTHENTIK_SECRET_KEY`, současně zapnuté `USE_TLS` a `USE_SSL` a `BACKUP_EXTERNAL_DIR`, který míří do Gitu, stacku, dat nebo lokálních záloh. Prázdný `BACKUP_EXTERNAL_DIR` je v pořádku.
+Odmítne chybějící nebo neznámou proměnnou, placeholder `set_*`, heslo PostgreSQL delší než 99 znaků, krátký `AUTHENTIK_SECRET_KEY`, současně zapnuté `USE_TLS` a `USE_SSL`, `BACKUP_EXTERNAL_DIR`, který míří do Gitu, stacku, dat nebo lokálních záloh, a `BACKUP_AGE_RECIPIENT`, který je soukromý klíč age. Prázdný `BACKUP_EXTERNAL_DIR` a prázdný `BACKUP_AGE_RECIPIENT` jsou v pořádku. Prázdný příjemce znamená, že `backup.sh` archiv nezapíše.
 
 ## deploy.sh
 
@@ -70,7 +70,7 @@ Po recreate následuje `post-deploy.sh` a `test.sh`.
 
 `test.sh` bez argumentu dělá totéž v nasazeném kontejneru, včetně Dockge a existence Docker sítě.
 
-`test.sh --static` je varianta pro checkout: struktura, politika `.env.example`, odmítnutí placeholderů, statické porty, dočasný test `rsync --delete`, kontrolní součty zálohy a odmítnutí neúplné obnovy. `docker compose config` vypíše, že neběžel, pokud Docker CLI chybí.
+`test.sh --static` je varianta pro checkout: struktura, politika `.env.example`, odmítnutí placeholderů, statické porty, dočasný test `rsync --delete`, šifrování zálohy pomocí `age`, kontrolní součty a odmítnutí neúplné obnovy. `docker compose config` vypíše, že neběžel, pokud Docker CLI chybí.
 
 ## Záloha
 

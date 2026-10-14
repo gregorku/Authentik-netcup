@@ -59,7 +59,8 @@ backup_dump_postgresql()
     [[ -n "${db_user}" && -n "${db_name}" ]] \
         || fail "PG_USER or PG_DB is empty."
 
-    mkdir -p "$(dirname "${output}")"
+    backup_create_private_dir "$(dirname "${output}")"
+    backup_create_private_file "${output}"
 
     if ! docker exec -u postgres "${POSTGRESQL_CONTAINER}" \
         pg_dump \

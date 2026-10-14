@@ -2,4 +2,5 @@
 .env.bak-*
 .env.tmp
 *.tar.gz
+*.tar.gz.age
 *.sha256
