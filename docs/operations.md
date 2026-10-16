@@ -34,7 +34,7 @@ Před zápisem vznikne `/docker-data/stacks/authentik-netcup/.env.bak-YYYYMMDD-H
 
 ## check-env.sh
 
-Odmítne chybějící nebo neznámou proměnnou, placeholder `set_*`, heslo PostgreSQL delší než 99 znaků, krátký `AUTHENTIK_SECRET_KEY`, současně zapnuté `USE_TLS` a `USE_SSL`, `BACKUP_EXTERNAL_DIR`, který míří do Gitu, stacku, dat nebo lokálních záloh, a `BACKUP_AGE_RECIPIENT`, který je soukromý klíč age. Prázdný `BACKUP_EXTERNAL_DIR` a prázdný `BACKUP_AGE_RECIPIENT` jsou v pořádku. Prázdný příjemce znamená, že `backup.sh` archiv nezapíše.
+Odmítne chybějící nebo neznámou proměnnou, placeholder `set_*`, heslo PostgreSQL delší než 99 znaků, krátký `AUTHENTIK_SECRET_KEY`, současně zapnuté `USE_TLS` a `USE_SSL`, `BACKUP_EXTERNAL_DIR`, který míří do Gitu, stacku, dat nebo lokálních záloh, a `BACKUP_AGE_RECIPIENT`, který je soukromý klíč age. Prázdný `BACKUP_EXTERNAL_DIR` a prázdný `BACKUP_AGE_RECIPIENT` validace přijme. V `.env.example` je cíl `/backups`. Prázdný příjemce znamená, že `backup.sh` archiv nezapíše. Prázdný cíl znamená, že kopie na hostitelský adresář nevznikne.
 
 ## deploy.sh
 
@@ -75,4 +75,4 @@ Po recreate následuje `post-deploy.sh` a `test.sh`.
 
 ## Záloha
 
-`./scripts/backup.sh` a `./scripts/restore.sh` jsou popsané v `docs/backup-restore.md`. Příkaz `age` musí být nainstalovaný v cílovém Debian 13 kontejneru. Prázdný `BACKUP_AGE_RECIPIENT` `backup.sh` odmítne a archiv nezapíše. Prázdný `BACKUP_EXTERNAL_DIR` vypíše, že šifrovaný soubor zůstává jen na tomto Incus kontejneru. Ostrou zálohu tvoří veřejný příjemce age a cíl, který je ověřený mimo kontejner. Soukromá identita pro `--identity` zůstává oddělená, mimo Git, stack, data a lokální zálohy.
+`./scripts/backup.sh` a `./scripts/restore.sh` jsou popsané v `docs/backup-restore.md`. Příkaz `age` musí být nainstalovaný v cílovém Debian 13 kontejneru. Prázdný `BACKUP_AGE_RECIPIENT` `backup.sh` odmítne a archiv nezapíše. Cíl `/backups` se použije jen jako připojený mountpoint. Když připojený není, záloha skončí chybou a do obyčejného adresáře nezapíše. Úspěch je ověřená šifrovaná kopie na tomto hostitelském adresáři VPS. Není to jiný disk ani přenos na jiný server. Soukromá identita pro `--identity` zůstává oddělená, mimo Git, stack, data a lokální zálohy.

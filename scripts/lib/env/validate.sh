@@ -31,6 +31,7 @@
 env_validate_backup_target()
 {
     local value="$1"
+    local protected
 
     [[ -z "${value}" ]] && return 0
 
@@ -40,16 +41,28 @@ env_validate_backup_target()
     [[ "${value}" != "/" ]] \
         || fail "BACKUP_EXTERNAL_DIR must not be '/'."
 
-    local protected
+    #
+    # case patterns are not pathname-expanded. An unquoted star in [[ ]]
+    # would expand /backups/* once that mount contains files, and the
+    # last false test would also become the function status under set -e.
+    #
 
     for protected in "${DATA_DIR}" "${STACK_DIR}" "${GIT_DIR}" "${BACKUP_LOCAL_DIR}"
     do
-        [[ "${value}" == "${protected}" || "${value}" == "${protected}/"* ]] \
-            && fail "BACKUP_EXTERNAL_DIR must not point inside ${protected}."
+        case "${value}" in
+            "${protected}"|"${protected}"/*)
+                fail "BACKUP_EXTERNAL_DIR must not point inside ${protected}."
+                ;;
+        esac
 
-        [[ "${protected}" == "${value}" || "${protected}" == "${value}/"* ]] \
-            && fail "BACKUP_EXTERNAL_DIR ${value} would contain ${protected}."
+        case "${protected}" in
+            "${value}"|"${value}"/*)
+                fail "BACKUP_EXTERNAL_DIR ${value} would contain ${protected}."
+                ;;
+        esac
     done
+
+    return 0
 }
 
 ###############################################################################

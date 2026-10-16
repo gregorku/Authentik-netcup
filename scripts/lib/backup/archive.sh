@@ -297,7 +297,8 @@ backup_require_sidecar()
 #   $1 - Archive path
 #   $2 - Destination directory
 #
-# A failed check does not describe the copy as a verified backup.
+# Both files are installed first. The sidecar is checked only after
+# that copy. A failed check does not describe the copy as verified.
 #
 ###############################################################################
 

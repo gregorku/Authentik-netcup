@@ -173,9 +173,11 @@ readonly AUTHENTIK_UID_GID="1000:1000"
 # Backups
 #
 # Local archives live outside DATA_DIR and outside STACK_DIR.
-# The external destination is not known here. Set
-# BACKUP_EXTERNAL_DIR in the runtime .env when a mount outside
-# this Incus container is available. An empty value means local only.
+# BACKUP_EXTERNAL_DIR is /backups: an Incus disk from the host VPS,
+# visible in the container as a mountpoint. It can share a device
+# number with /docker-data. backup.sh copies there only when the
+# path is that mountpoint. Another program transfers those files
+# off the VPS later. An empty value means local only.
 ###############################################################################
 
 readonly BACKUP_LOCAL_DIR="${BASE_DIR}/backups/${STACK_NAME}"

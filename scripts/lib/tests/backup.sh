@@ -989,6 +989,9 @@ test_backup_stream_encrypt()
     [[ "$(cat "${work}/age.err")" != *'AGE-SECRET-KEY'* ]] \
         || fail "An age error included identity material."
 
+    [[ "$(cat "${work}/age.out")" != *"mounted host directory"* ]] \
+        || fail "An age failure was announced as a host-directory copy."
+
     leftover="$(
         find "${work}" \( -name 'plain.tar.gz' -o -name '*.tar.gz' \) -print
     )"
@@ -1002,10 +1005,10 @@ test_backup_stream_encrypt()
 }
 
 ###############################################################################
-# Destination device and directory mode
+# Ordinary directory on this filesystem
 #
-# Both directories are on this workstation's filesystem. No second
-# disk is mounted. The other-filesystem branch is not executed here.
+# No bind mount is created here. A mode 700 directory that shares the
+# device with the local backup directory is still not a mountpoint.
 #
 ###############################################################################
 
@@ -1022,7 +1025,7 @@ test_backup_destination()
 
     work="$(mktemp -d)"
     local_dir="${work}/local"
-    same="${work}/same"
+    same="${work}/backups"
     loose="${work}/loose"
 
     mkdir -m 700 "${local_dir}" "${same}"
@@ -1030,16 +1033,19 @@ test_backup_destination()
 
     kind="$(backup_classify_destination "${same}" "${local_dir}")"
 
-    [[ "${kind}" == "same-filesystem" ]] \
-        || fail "Two directories on this filesystem were classed as ${kind}."
+    [[ "${kind}" == "not-mounted" ]] \
+        || fail "A plain directory was classed as ${kind}."
 
     rejected="$(backup_publish_encrypted "${work}/missing" "${same}" "${local_dir}" 2>&1)" || true
 
-    [[ "${rejected}" == *"same filesystem"* ]] \
-        || fail "A same-filesystem destination was copied: ${rejected}"
+    [[ "${rejected}" == *"not a mounted mountpoint"* ]] \
+        || fail "A plain directory was copied: ${rejected}"
 
-    [[ "${rejected}" == *"not an external backup"* ]] \
-        || fail "A same-filesystem destination was called an external backup: ${rejected}"
+    [[ "${rejected}" == *"Refusing to write"* ]] \
+        || fail "A plain directory was not refused: ${rejected}"
+
+    [[ "${rejected}" != *"mounted host directory"* ]] \
+        || fail "A plain directory was called a host-directory copy: ${rejected}"
 
     [[ ! -e "${same}/missing" ]] \
         || fail "A refused destination received a file."
@@ -1073,7 +1079,139 @@ test_backup_destination()
 
     rm -rf "${work}"
 
-    ok "Same-filesystem and loose destinations are refused."
+    ok "A plain directory and a loose destination are refused."
+}
+
+###############################################################################
+# Bind mount is a host mountpoint even on the same device
+#
+# unshare creates a private mount namespace and a real bind mount in
+# the temporary directory. /backups on the workstation and the VPS
+# are not touched. backup.sh is not executed.
+#
+###############################################################################
+
+backup_host_mount_checks()
+{
+    local work="$1"
+    local mounted
+    local plain
+    local local_dir
+    local archive
+    local broken
+    local kind
+    local rejected
+    local base
+    local copied
+
+    mounted="${work}/backups"
+    plain="${work}/plain"
+    local_dir="${work}/local"
+    archive="${local_dir}/sample.tar.gz.age"
+    broken="${local_dir}/broken.tar.gz.age"
+
+    mkdir -m 700 "${work}/src" "${mounted}" "${plain}" "${local_dir}"
+    printf 'payload\n' > "${work}/src/file"
+    mount --bind "${work}/src" "${mounted}"
+
+    [[ "$(stat -c '%d' "${mounted}")" == "$(stat -c '%d' "${plain}")" ]] \
+        || fail "The bind mount fixture is not on the same device as the plain directory."
+
+    kind="$(backup_classify_destination "${mounted}" "${local_dir}")"
+
+    [[ "${kind}" == "host-mount" ]] \
+        || fail "A bind mount on the same device was classed as ${kind}."
+
+    printf 'ciphertext\n' > "${archive}"
+    backup_write_checksum "${archive}"
+
+    backup_publish_encrypted "${archive}" "${mounted}" "${local_dir}"
+
+    base="$(basename "${archive}")"
+    copied="${mounted}/${base}"
+
+    [[ "$(stat -c '%a' "${copied}")" == "600" ]] \
+        || fail "The copied archive is not mode 600."
+
+    [[ "$(stat -c '%a' "${copied}.sha256")" == "600" ]] \
+        || fail "The copied checksum is not mode 600."
+
+    [[ "$(stat -c '%a' "${mounted}")" == "700" ]] \
+        || fail "The mounted directory is not mode 700."
+
+    backup_verify_sidecar "${copied}" \
+        || fail "The checksum was not verified on the mounted directory."
+
+    rejected="$(backup_publish_encrypted "${archive}" "${plain}" "${local_dir}" 2>&1)" || true
+
+    [[ "${rejected}" == *"not a mounted mountpoint"* ]] \
+        || fail "A plain directory beside the bind mount was accepted: ${rejected}"
+
+    [[ "${rejected}" == *"Refusing to write"* ]] \
+        || fail "A plain directory beside the bind mount was not refused: ${rejected}"
+
+    [[ ! -e "${plain}/${base}" && ! -e "${plain}/${base}.sha256" ]] \
+        || fail "A plain directory received the archive."
+
+    rejected="$(backup_classify_destination "${work}/absent" "${local_dir}" 2>&1)" || true
+
+    [[ "${rejected}" == *"not a directory"* ]] \
+        || fail "A missing mountpoint was accepted: ${rejected}"
+
+    [[ ! -e "${work}/absent" ]] \
+        || fail "A missing mountpoint was created."
+
+    printf 'ciphertext\n' > "${broken}"
+    backup_write_checksum "${broken}"
+    printf '0000000000000000000000000000000000000000000000000000000000000000  broken.tar.gz.age\n' \
+        > "${broken}.sha256"
+
+    rejected="$(backup_publish_encrypted "${broken}" "${mounted}" "${local_dir}" 2>&1)" || true
+
+    [[ "${rejected}" == *"not a verified backup"* ]] \
+        || fail "A bad checksum was accepted: ${rejected}"
+
+    [[ "${rejected}" != *"mounted host directory"* ]] \
+        || fail "A bad checksum was announced as a host-directory copy: ${rejected}"
+}
+
+test_backup_host_mount()
+{
+    print_section "Host backup mount"
+
+    local work
+    local status
+    local output
+
+    work="$(mktemp -d)"
+    status=0
+
+    output="$(
+        unshare --mount --propagation private --user --map-root-user \
+            bash -c '
+                set -Eeuo pipefail
+                SCRIPT_DIR="$1"
+                work="$2"
+                source "${SCRIPT_DIR}/config.sh"
+                source "${SCRIPT_DIR}/lib/common.sh"
+                source "${SCRIPT_DIR}/lib/logging.sh"
+                source "${SCRIPT_DIR}/lib/filesystem.sh"
+                source "${SCRIPT_DIR}/lib/env/load.sh"
+                source "${SCRIPT_DIR}/lib/backup/private.sh"
+                source "${SCRIPT_DIR}/lib/backup/archive.sh"
+                source "${SCRIPT_DIR}/lib/backup/crypto.sh"
+                source "${SCRIPT_DIR}/lib/tests/backup.sh"
+                backup_host_mount_checks "${work}"
+            ' \
+            bash "${SCRIPT_DIR}" "${work}" 2>&1
+    )" || status=$?
+
+    [[ "${status}" -eq 0 ]] \
+        || fail "Host mount checks failed with status ${status}: ${output}"
+
+    rm -rf "${work}"
+
+    ok "A bind mount is a host directory and a plain directory on the same device is refused."
 }
 
 ###############################################################################

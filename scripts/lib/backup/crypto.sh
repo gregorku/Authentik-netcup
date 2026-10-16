@@ -343,6 +343,99 @@ backup_require_identity()
 }
 
 ###############################################################################
+# Mount that contains a path, from the kernel mount table
+#
+# Arguments:
+#   $1 - Existing path
+#
+# Prints the mountpoint. findmnt and /proc/self/mountinfo both have to
+# agree. A shared device number is not used: the host directory
+# /backups is an Incus bind mount on the same device as /docker-data.
+# stat %m is not used either. On a bind mount it can report the parent.
+#
+###############################################################################
+
+backup_mountpoint_from_table()
+{
+    local path="$1"
+
+    BACKUP_MOUNT_QUERY="${path}" awk '
+        function unescape(text, out, i, digits, value) {
+            out = ""
+            i = 1
+            while (i <= length(text)) {
+                if (substr(text, i, 1) == "\\" && i + 3 <= length(text)) {
+                    digits = substr(text, i + 1, 3)
+                    if (digits ~ /^[0-7][0-7][0-7]$/) {
+                        value = substr(digits, 1, 1) * 64
+                        value += substr(digits, 2, 1) * 8
+                        value += substr(digits, 3, 1)
+                        out = out sprintf("%c", value)
+                        i += 4
+                        continue
+                    }
+                }
+                out = out substr(text, i, 1)
+                i++
+            }
+            return out
+        }
+        BEGIN {
+            target = ENVIRON["BACKUP_MOUNT_QUERY"]
+            best = ""
+        }
+        {
+            count = split($0, fields, " ")
+            if (count < 5) {
+                next
+            }
+            mountpoint = unescape(fields[5])
+            if (mountpoint == "/") {
+                if (best == "") {
+                    best = mountpoint
+                }
+                next
+            }
+            if (target == mountpoint || index(target, mountpoint "/") == 1) {
+                if (length(mountpoint) > length(best)) {
+                    best = mountpoint
+                }
+            }
+        }
+        END {
+            if (best != "") {
+                print best
+            }
+        }
+    ' /proc/self/mountinfo
+}
+
+backup_containing_mount()
+{
+    local path="$1"
+    local from_table
+    local from_findmnt
+    local table_real
+    local findmnt_real
+
+    command -v findmnt >/dev/null 2>&1 || return 1
+    command -v mountpoint >/dev/null 2>&1 || return 1
+
+    from_table="$(backup_mountpoint_from_table "${path}")" || return 1
+    [[ -n "${from_table}" ]] || return 1
+
+    from_findmnt="$(findmnt -n -o TARGET -T "${path}")" || return 1
+    [[ -n "${from_findmnt}" ]] || return 1
+
+    table_real="$(realpath -m "${from_table}")" || return 1
+    findmnt_real="$(realpath -m "${from_findmnt}")" || return 1
+
+    [[ "${table_real}" == "${findmnt_real}" ]] || return 1
+
+    printf '%s\n' "${findmnt_real}"
+}
+
+###############################################################################
 # Resolved destination and how it may be described
 #
 # Arguments:
@@ -350,11 +443,16 @@ backup_require_identity()
 #   $2 - Local backup directory
 #
 # Prints one word to stdout:
-#   same-filesystem
-#   other-filesystem
+#   host-mount
+#   not-mounted
 #
-# other-filesystem is a verified copy on another device. It is not
-# proof that the device is outside the Incus container.
+# host-mount means the resolved path is itself a mountpoint, mode 700,
+# and that mountpoint is not "/" and not the mount that holds the
+# local backup directory. It may use the same device number. It is the
+# mounted host directory, not a second disk and not a remote transfer.
+#
+# not-mounted is an ordinary directory, including /backups when that
+# path exists only on the container root filesystem. Nothing is copied.
 #
 ###############################################################################
 
@@ -364,16 +462,14 @@ backup_classify_destination()
     local local_dir="$2"
     local resolved
     local mode
-    local dest_device
-    local local_device
+    local dest_mount
+    local local_mount
 
     [[ -d "${requested}" ]] \
         || fail "BACKUP_EXTERNAL_DIR is not a directory: ${requested}"
 
     resolved="$(realpath -e "${requested}")" \
         || fail "BACKUP_EXTERNAL_DIR could not be resolved: ${requested}"
-
-    BACKUP_RESOLVED_DEST="${resolved}"
 
     env_validate_backup_target "${resolved}"
 
@@ -386,31 +482,37 @@ backup_classify_destination()
     [[ "$(stat -c '%u' "${resolved}")" == "$(id -u)" ]] \
         || fail "BACKUP_EXTERNAL_DIR must be owned by the user running backup.sh."
 
-    dest_device="$(stat -c '%d' "${resolved}")" \
-        || fail "BACKUP_EXTERNAL_DIR device could not be read."
+    dest_mount="$(backup_containing_mount "${resolved}")" \
+        || fail "BACKUP_EXTERNAL_DIR mount information could not be read: ${resolved}"
 
-    local_device="$(stat -c '%d' "${local_dir}")" \
-        || fail "Local backup directory device could not be read."
+    local_mount="$(backup_containing_mount "${local_dir}")" \
+        || fail "Local backup directory mount information could not be read."
 
-    if [[ "${dest_device}" == "${local_device}" ]]; then
-        printf '%s\n' "same-filesystem"
+    if [[ "${resolved}" == "${dest_mount}" \
+        && "${dest_mount}" != "/" \
+        && "${dest_mount}" != "${local_mount}" ]] \
+        && mountpoint -q -- "${resolved}"
+    then
+        printf '%s\n' "host-mount"
         return 0
     fi
 
-    printf '%s\n' "other-filesystem"
+    printf '%s\n' "not-mounted"
 }
 
 ###############################################################################
-# Copy an encrypted archive, or refuse a same-filesystem destination
+# Copy an encrypted archive onto a mounted host directory
 #
 # Arguments:
 #   $1 - Encrypted archive
 #   $2 - Requested destination directory
 #   $3 - Local backup directory
 #
-# A same-filesystem path is not copied and is not called an external
-# backup. A different filesystem is a verified copy only. This script
-# cannot prove that the other filesystem is outside the Incus container.
+# The destination is not created. A path that is not itself a
+# mountpoint is refused before any copy. The checksum is verified
+# only after the archive and the sidecar are installed. Success here
+# is a verified copy on that mount. It is not another disk and it is
+# not a transfer to another server.
 #
 ###############################################################################
 
@@ -420,19 +522,26 @@ backup_publish_encrypted()
     local requested="$2"
     local local_dir="$3"
     local kind
+    local resolved
+
+    #
+    # Classification runs in this command substitution, so a variable
+    # set inside it does not survive. Resolve the path again here.
+    #
 
     kind="$(backup_classify_destination "${requested}" "${local_dir}")"
+    resolved="$(realpath -e "${requested}")"
 
     case "${kind}" in
 
-        same-filesystem)
-            fail "BACKUP_EXTERNAL_DIR is on the same filesystem as ${local_dir}. The copy was not made. This is not an external backup."
+        not-mounted)
+            fail "BACKUP_EXTERNAL_DIR is not a mounted mountpoint: ${resolved}. Refusing to write. An ordinary directory on the container filesystem is not the host VPS directory."
             ;;
 
-        other-filesystem)
-            backup_copy_and_verify "${archive}" "${BACKUP_RESOLVED_DEST}"
-            warn "Verified encrypted copy on another filesystem: ${BACKUP_RESOLVED_DEST}."
-            warn "This script cannot prove that filesystem is outside the Incus container."
+        host-mount)
+            backup_copy_and_verify "${archive}" "${resolved}"
+            warn "Verified encrypted copy on the mounted host directory: ${resolved}."
+            warn "This is not a backup on another disk and it has not been transferred to another server."
             ;;
 
         *)

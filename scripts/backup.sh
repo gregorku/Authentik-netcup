@@ -39,11 +39,14 @@
 # The archive is written to:
 #   /docker-data/backups/authentik-netcup
 #
-# If BACKUP_EXTERNAL_DIR is set, the encrypted archive is copied only
-# when that directory is mode 700 and on another filesystem. A copy
-# on another filesystem is still not proof of storage outside this
-# Incus container. An empty value leaves only the local encrypted
-# archive. Without age or a public recipient, no archive is kept.
+# BACKUP_EXTERNAL_DIR is /backups, the Incus mount of the host VPS
+# backup directory. The copy is made only when that path is itself a
+# mountpoint and mode 700. The same device number as /docker-data is
+# expected and does not make the copy another disk. An ordinary
+# directory at that path is refused and nothing is written there.
+# An empty value leaves only the local encrypted archive. Without age
+# or a public recipient, no archive is kept. A later program transfers
+# the encrypted files off the VPS. This script does not.
 #
 # Side effects:
 #   - Stops authentik-server and authentik-worker when they are running,
@@ -128,10 +131,12 @@ Description:
     stack, DATA_DIR and the local backup directory, and present it
     only to restore.sh --identity.
 
-    BACKUP_EXTERNAL_DIR receives an encrypted copy only when it is
-    mode 700 and on a different filesystem from the local backup
-    directory. That copy is not described as storage outside this
-    Incus container. The script cannot see the host mount table.
+    BACKUP_EXTERNAL_DIR is /backups. The encrypted archive is copied
+    there only when realpath and the kernel mount table show that the
+    path itself is a mountpoint, mode 700. A plain directory is not
+    used. The copy is a verified file on the mounted host VPS
+    directory. It is not a backup on another disk and it is not a
+    completed transfer to another server.
 
     An empty BACKUP_EXTERNAL_DIR leaves the encrypted archive only
     on this container.
@@ -310,5 +315,5 @@ fi
 if [[ -z "${external}" ]]; then
     print_footer "Encrypted local archive completed. It is not a backup outside this container."
 else
-    print_footer "Encrypted copy verified on another filesystem. Not a confirmed backup outside this container."
+    print_footer "Verified encrypted copy on the mounted host directory. It is not on another disk and it has not been transferred to another server."
 fi

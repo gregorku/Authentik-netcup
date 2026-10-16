@@ -56,23 +56,25 @@ Tento adresář leží na disku Incus kontejneru. Ani šifrovaný soubor v něm 
 
 ## Ostrá záloha
 
-`check-env.sh` prázdný `BACKUP_AGE_RECIPIENT` i prázdný `BACKUP_EXTERNAL_DIR` přijme. To nasazení nezastaví a zálohu mimo kontejner to nevytvoří.
+`BACKUP_EXTERNAL_DIR` je `/backups`. V kontejneru je to Incus diskové zařízení z hostitelského VPS. `df` a `stat` na něm ukazují stejné zařízení jako u `/docker-data`. Rozdíl je mountpoint: `/backups` je připojený mount, lokální adresář záloh není.
 
-Pro ostrou zálohu musí být v runtime `.env` veřejný příjemce `BACKUP_AGE_RECIPIENT` (`age1…` nebo veřejný SSH klíč) a ověřený cíl mimo Incus kontejner `10.10.10.100`. Soukromá identita (`AGE-SECRET-KEY-…`) do příjemce nepatří. Zůstává odděleně mimo Git, stack, `DATA_DIR` a `/docker-data/backups/authentik-netcup`. `backup.sh` ji nečte. Obnova ji dostane jen jako `--identity`, v souboru s módem `600` nebo `400`.
+`check-env.sh` prázdný `BACKUP_AGE_RECIPIENT` i prázdný `BACKUP_EXTERNAL_DIR` přijme. Prázdný příjemce znamená, že `backup.sh` archiv nezapíše. Prázdný cíl znamená, že šifrovaný soubor zůstane jen v lokálním adresáři na disku kontejneru.
 
-`backup.sh` při prázdném příjemci, při soukromém klíči na místě příjemce, nebo když v kontejneru chybí příkaz `age`, archiv nezapíše. Při prázdném `BACKUP_EXTERNAL_DIR` archiv v lokálním adresáři nechá a výslovně vypíše, že jde o soubor jen na disku tohoto kontejneru.
+Pro kopii na hostitelský adresář musí být v runtime `.env` veřejný příjemce `BACKUP_AGE_RECIPIENT` (`age1…` nebo veřejný SSH klíč) a `/backups` musí být skutečně připojený mountpoint s módem `700`. Soukromá identita (`AGE-SECRET-KEY-…`) do příjemce nepatří. Zůstává odděleně mimo Git, stack, `DATA_DIR` a `/docker-data/backups/authentik-netcup`. `backup.sh` ji nečte. Obnova ji dostane jen jako `--identity`, v souboru s módem `600` nebo `400`.
 
-Cíl mimo kontejner ověřuje provoz, ne skript. `BACKUP_EXTERNAL_DIR` skript zkopíruje jen jako adresář mód `700` na jiném souborovém systému. Ani taková kopie sama o sobě nedokazuje, že úložiště opustilo Incus kontejner. Dokud takový cíl není, proměnná zůstane prázdná.
+`backup.sh` při prázdném příjemci, při soukromém klíči na místě příjemce, nebo když v kontejneru chybí příkaz `age`, archiv nezapíše a běh není úspěšná záloha.
 
-## Kopie na jiný adresář
+Úspěch kopie znamená ověřený soubor `.tar.gz.age` a jeho `.sha256` na připojeném hostitelském adresáři VPS. Není to záloha na jiném disku. Není to přenos na jiný server. Ten přenos dělá později jiný program a tento repozitář ho neprovádí.
 
-`BACKUP_EXTERNAL_DIR` je prázdný, dokud není známý cíl. Prázdná hodnota je platná. Archiv pak zůstane jen v lokálním adresáři.
+## Kopie na `/backups`
 
-Když je proměnná nastavená, cesta se vezme přes `realpath`. Musí to být existující adresář mód `700`, vlastněný uživatelem, který zálohu spouští, a nesmí být v Gitu, ve stacku, v datech ani v lokálních zálohách.
+Cesta se vezme přes `realpath`. Musí to být existující adresář, vlastněný uživatelem, který zálohu spouští, mód `700`, a nesmí být v Gitu, ve stacku, v datech ani v lokálních zálohách. Skript adresář nevytváří a mód `700` mu sám nenastavuje.
 
-Leží-li cíl na stejném souborovém systému jako lokální adresář záloh, kopie se neprovede. To není externí záloha.
+Mountpoint se čte z `findmnt` a z `/proc/self/mountinfo`. Obě tabulky se musí shodovat a `mountpoint` musí potvrdit, že cílem je přímo tento mount, ne adresář uvnitř jiného mountu. Číslo zařízení se nepoužívá. Stejné zařízení jako `/docker-data` je u tohoto Incus bind mountu očekávané.
 
-Leží-li na jiném souborovém systému, součet šifrovaného archivu se ověří v cíli. Skript to označí jako ověřenou kopii na jiném souborovém systému. Nedokáže tím prokázat, že úložiště je mimo Incus kontejner, a tak to ani nepojmenuje.
+Když `/backups` není připojené, nebo když na kořenovém souborovém systému kontejneru leží jen obyčejný adresář stejného jména, `backup.sh` skončí chybou a do toho adresáře nezapíše.
+
+Po zápisu mají archiv i checksum mód `600`. Kontrolní součet se ověřuje až na souborech v cílovém adresáři. Teprve potom se vypíše ověřená kopie na připojeném hostitelském adresáři.
 
 ## Obnovení
 
@@ -127,4 +129,4 @@ Klíč a dump jsou svázané tím, že byly v jednom archivu se součty. Skript 
 
 ## Test bez produkčních dat
 
-`./scripts/test.sh --static` v dočasných adresářích pouští skutečné `age`, `install`, `tar` a `sha256sum`, když jsou na stroji, a u souborů čte `stat`. `pg_dump`, `pg_restore` a Docker při tom nespouští. Zastavení kontejnerů a načtení databáze jsou v příslušných testech nahrazené funkce. `SIGTERM` dostane pomocný proces, ne produkční `restore.sh`. Druhý souborový systém se nemountuje: test odmítne dva adresáře na tom, který právě běží. Kontrola `shred` ověřuje jen to, že jméno souboru zmizelo. Neověřuje, že bloky na SSD nebo na copy-on-write souborovém systému jsou pryč.
+`./scripts/test.sh --static` v dočasných adresářích pouští skutečné `age`, `install`, `tar` a `sha256sum`, když jsou na stroji, a u souborů čte `stat`. `pg_dump`, `pg_restore` a Docker při tom nespouští. Zastavení kontejnerů a načtení databáze jsou v příslušných testech nahrazené funkce. `SIGTERM` dostane pomocný proces, ne produkční `restore.sh`. Rozpoznání mountpointu se zkouší v soukromém mount namespace na dočasném bind mountu. Produkční `/backups` ani disk VPS se nepřipojuje. Obyčejný adresář na stejném zařízení se dál odmítá. Kontrola `shred` ověřuje jen to, že jméno souboru zmizelo. Neověřuje, že bloky na SSD nebo na copy-on-write souborovém systému jsou pryč.
