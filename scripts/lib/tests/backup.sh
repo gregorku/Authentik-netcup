@@ -835,9 +835,11 @@ test_backup_plaintext_modes()
 # backup_store_encrypted_stage returns, to read the ciphertext back.
 # The store function itself receives no identity.
 #
-# The tar failure is a real open error on a mode 000 file. That needs
-# a non-root user. The age failure is a real age checksum rejection of
-# a recipient string that backup_recipient_is_public still accepts.
+# The tar failure is a fake tar in one subshell. It exits 1 and writes
+# no stdout, so age can still encrypt that empty stream. pipefail has
+# to return the tar status. The success path and the age failure path
+# keep the real tar. The age failure is a real age checksum rejection
+# of a recipient string that backup_recipient_is_public still accepts.
 #
 ###############################################################################
 
@@ -857,9 +859,7 @@ test_backup_stream_encrypt()
     local leftover
     local restored
     local mode
-
-    [[ "$(id -u)" -ne 0 ]] \
-        || fail "The tar failure case needs a non-root user so mode 000 is unreadable."
+    local fake_bin
 
     if grep -q 'plain\.tar\.gz' "${SCRIPT_DIR}/backup.sh"; then
         fail "backup.sh still names a plaintext tar archive."
@@ -927,21 +927,45 @@ test_backup_stream_encrypt()
     [[ "$(cat "${work}/out/payload")" == "stream-marker" ]] \
         || fail "Decrypted stream does not contain the stage payload."
 
+    if ! printf '' | age -r "${recipient}" -o "${work}/empty-input.age" >/dev/null; then
+        fail "age rejected empty input, so a tar failure would not prove pipefail."
+    fi
+
+    [[ -s "${work}/empty-input.age" ]] \
+        || fail "age did not encrypt empty input."
+
+    rm -f "${work}/empty-input.age"
+
+    fake_bin="${work}/fake-tar-bin"
+    mkdir -m 700 "${fake_bin}"
+    cat > "${fake_bin}/tar" << 'EOF'
+#!/bin/sh
+printf '%s\n' 'tar: forced failure' >&2
+exit 1
+EOF
+    chmod 755 "${fake_bin}/tar"
+
     tar_stage="$(mktemp -d "${work}/tarfail.XXXXXX")"
     stage="${tar_stage}"
     backup_create_private_file "${stage}/secret"
-    chmod 000 "${stage}/secret"
+    printf 'readable\n' > "${stage}/secret"
     pending="$(mktemp -d "${work}/pending-tar.XXXXXX")"
     final="${work}/publish/tar-fail.tar.gz.age"
     status=0
 
-    backup_store_encrypted_stage \
-        "${stage}" \
-        "${final}" \
-        "${recipient}" \
-        "${pending}" \
-        >"${work}/tar.out" 2>"${work}/tar.err" \
-        || status=$?
+    #
+    # hash -r stays in the subshell. The parent keeps the real tar
+    # for the age failure below.
+    #
+
+    (
+        hash -r
+        PATH="${fake_bin}:${PATH}" backup_store_encrypted_stage \
+            "${stage}" \
+            "${final}" \
+            "${recipient}" \
+            "${pending}"
+    ) >"${work}/tar.out" 2>"${work}/tar.err" || status=$?
 
     [[ "${status}" -eq 1 ]] \
         || fail "A tar failure was stored with status ${status}."
@@ -952,8 +976,8 @@ test_backup_stream_encrypt()
     [[ ! -e "${pending}/stream.tar.gz.age" ]] \
         || fail "A tar failure left temporary ciphertext."
 
-    [[ "$(cat "${work}/tar.err")" == *'tar:'* ]] \
-        || fail "tar did not report the unreadable file."
+    [[ "$(cat "${work}/tar.err")" == *'tar: forced failure'* ]] \
+        || fail "The isolated fake tar did not fail the pipeline."
 
     bad_recipient="age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
     backup_recipient_is_public "${bad_recipient}" \
@@ -998,7 +1022,6 @@ test_backup_stream_encrypt()
     [[ -z "${leftover}" ]] \
         || fail "A plaintext tar was created: ${leftover}"
 
-    chmod u+r "${tar_stage}/secret" 2>/dev/null || true
     rm -rf "${work}"
 
     ok "Streamed age encryption publishes only after the pipeline and checksum succeed."
