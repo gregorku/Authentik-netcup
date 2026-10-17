@@ -317,4 +317,3 @@ if [[ -z "${external}" ]]; then
 else
     print_footer "Verified encrypted copy on the mounted host directory. It is not on another disk and it has not been transferred to another server."
 fi
-222
